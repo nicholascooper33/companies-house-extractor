@@ -1,0 +1,194 @@
+/**
+ * Production server for Companies House Extractor
+ * Serves both the API and the built frontend from a single process
+ */
+
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+const CH_API_BASE = 'https://api.company-information.service.gov.uk';
+
+app.use(cors());
+app.use(express.json());
+
+// Serve static frontend files (built React app)
+app.use(express.static(path.join(__dirname, 'frontend/dist')));
+
+// API helper function
+async function fetchFromCompaniesHouse(endpoint) {
+  const apiKey = process.env.COMPANIES_HOUSE_API_KEY;
+  if (!apiKey) {
+    throw new Error('Companies House API key not configured');
+  }
+
+  const response = await fetch(`${CH_API_BASE}${endpoint}`, {
+    headers: {
+      'Authorization': 'Basic ' + Buffer.from(apiKey + ':').toString('base64')
+    }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Companies House API error: ${response.status} - ${errorText}`);
+  }
+
+  return response.json();
+}
+
+// Search companies
+app.get('/api/search', async (req, res) => {
+  try {
+    const { q, items_per_page = 20 } = req.query;
+    if (!q) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+    const data = await fetchFromCompaniesHouse(
+      `/search/companies?q=${encodeURIComponent(q)}&items_per_page=${items_per_page}`
+    );
+    res.json(data);
+  } catch (error) {
+    console.error('Search error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get company profile
+app.get('/api/company/:companyNumber', async (req, res) => {
+  try {
+    const data = await fetchFromCompaniesHouse(`/company/${req.params.companyNumber}`);
+    res.json(data);
+  } catch (error) {
+    console.error('Company profile error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get company officers
+app.get('/api/company/:companyNumber/officers', async (req, res) => {
+  try {
+    const data = await fetchFromCompaniesHouse(`/company/${req.params.companyNumber}/officers`);
+    res.json(data);
+  } catch (error) {
+    console.error('Officers error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get persons with significant control
+app.get('/api/company/:companyNumber/pscs', async (req, res) => {
+  try {
+    const data = await fetchFromCompaniesHouse(
+      `/company/${req.params.companyNumber}/persons-with-significant-control`
+    );
+    res.json(data);
+  } catch (error) {
+    console.error('PSC error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recursive function to trace corporate ownership chain
+async function traceOwnershipChain(companyNumber, depth = 0, maxDepth = 10, visited = new Set()) {
+  // Prevent infinite loops and excessive depth
+  if (depth >= maxDepth || visited.has(companyNumber)) {
+    return null;
+  }
+
+  visited.add(companyNumber);
+
+  try {
+    // Get company profile
+    const companyProfile = await fetchFromCompaniesHouse(`/company/${companyNumber}`);
+
+    // Get PSCs for this company
+    let pscs = { items: [] };
+    try {
+      pscs = await fetchFromCompaniesHouse(
+        `/company/${companyNumber}/persons-with-significant-control`
+      );
+    } catch (e) {
+      // Some companies may not have PSC data
+      console.log(`No PSC data for ${companyNumber}`);
+    }
+
+    const result = {
+      company_number: companyNumber,
+      company_name: companyProfile.company_name,
+      company_status: companyProfile.company_status,
+      depth: depth,
+      pscs: []
+    };
+
+    // Process each PSC
+    if (pscs.items) {
+      for (const psc of pscs.items) {
+        // Skip ceased PSCs
+        if (psc.ceased_on) continue;
+
+        const pscInfo = {
+          name: psc.name,
+          kind: psc.kind,
+          natures_of_control: psc.natures_of_control || [],
+          address: psc.address
+        };
+
+        // Check if this is a corporate entity
+        if (psc.kind === 'corporate-entity-person-with-significant-control' && psc.identification) {
+          pscInfo.identification = psc.identification;
+
+          // If it's a UK company, try to trace further up the chain
+          const regNumber = psc.identification.registration_number;
+          if (regNumber && psc.identification.place_registered?.toLowerCase().includes('companies house')) {
+            // Format the company number (pad with zeros if needed)
+            const formattedNumber = regNumber.toString().padStart(8, '0');
+            pscInfo.parent_chain = await traceOwnershipChain(formattedNumber, depth + 1, maxDepth, visited);
+          }
+        }
+
+        result.pscs.push(pscInfo);
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error(`Error tracing company ${companyNumber}:`, error.message);
+    return {
+      company_number: companyNumber,
+      error: error.message,
+      depth: depth
+    };
+  }
+}
+
+// Get ownership chain
+app.get('/api/company/:companyNumber/ownership-chain', async (req, res) => {
+  try {
+    const chain = await traceOwnershipChain(req.params.companyNumber);
+    res.json(chain);
+  } catch (error) {
+    console.error('Ownership chain error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    apiKeyConfigured: !!process.env.COMPANIES_HOUSE_API_KEY
+  });
+});
+
+// Serve frontend for all other routes (SPA support)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend/dist/index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`API Key configured: ${!!process.env.COMPANIES_HOUSE_API_KEY}`);
+});
