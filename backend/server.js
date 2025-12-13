@@ -130,19 +130,43 @@ async function traceOwnershipChain(companyNumber, depth = 0, visited = new Set()
         };
 
         // Check if this is a corporate entity
-        if (psc.kind === 'corporate-entity-person-with-significant-control' && psc.identification) {
-          pscInfo.identification = psc.identification;
+        if (psc.kind === 'corporate-entity-person-with-significant-control') {
+          if (psc.identification) {
+            pscInfo.identification = psc.identification;
+          }
 
-          // Try to trace the corporate owner - attempt lookup for any company with a registration number
-          const regNumber = psc.identification.registration_number;
-          if (regNumber) {
+          // Try to trace the corporate owner
+          let companyNumberToTrace = psc.identification?.registration_number;
+
+          // If no registration number, try to find the company by name
+          if (!companyNumberToTrace && psc.name) {
+            try {
+              const searchResults = await fetchFromCompaniesHouse(
+                `/search/companies?q=${encodeURIComponent(psc.name)}&items_per_page=5`
+              );
+              // Look for an exact or close match
+              if (searchResults.items && searchResults.items.length > 0) {
+                const exactMatch = searchResults.items.find(
+                  item => item.title.toLowerCase() === psc.name.toLowerCase()
+                );
+                if (exactMatch) {
+                  companyNumberToTrace = exactMatch.company_number;
+                  console.log(`Found company number ${companyNumberToTrace} for "${psc.name}" via search`);
+                }
+              }
+            } catch (e) {
+              console.log(`Could not search for company "${psc.name}": ${e.message}`);
+            }
+          }
+
+          if (companyNumberToTrace) {
             // Format the company number (pad with zeros if needed for UK companies)
-            const formattedNumber = regNumber.toString().padStart(8, '0');
+            const formattedNumber = companyNumberToTrace.toString().padStart(8, '0');
             try {
               pscInfo.parent_chain = await traceOwnershipChain(formattedNumber, depth + 1, visited);
             } catch (e) {
               // Company not found in UK registry - that's OK, it might be foreign
-              console.log(`Could not trace ${regNumber}: ${e.message}`);
+              console.log(`Could not trace ${companyNumberToTrace}: ${e.message}`);
             }
           }
         }
