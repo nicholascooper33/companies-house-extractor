@@ -133,21 +133,17 @@ async function traceOwnershipChain(companyNumber, depth = 0, visited = new Set()
         if (psc.kind === 'corporate-entity-person-with-significant-control' && psc.identification) {
           pscInfo.identification = psc.identification;
 
-          // If it's a UK company, try to trace further up the chain
+          // Try to trace the corporate owner - attempt lookup for any company with a registration number
           const regNumber = psc.identification.registration_number;
-          const placeRegistered = (psc.identification.place_registered || '').toLowerCase();
-          const isUKCompany = placeRegistered.includes('companies house') ||
-                              placeRegistered.includes('england') ||
-                              placeRegistered.includes('wales') ||
-                              placeRegistered.includes('scotland') ||
-                              placeRegistered.includes('united kingdom') ||
-                              placeRegistered.includes('uk') ||
-                              placeRegistered.includes('northern ireland');
-
-          if (regNumber && isUKCompany) {
-            // Format the company number (pad with zeros if needed)
+          if (regNumber) {
+            // Format the company number (pad with zeros if needed for UK companies)
             const formattedNumber = regNumber.toString().padStart(8, '0');
-            pscInfo.parent_chain = await traceOwnershipChain(formattedNumber, depth + 1, visited);
+            try {
+              pscInfo.parent_chain = await traceOwnershipChain(formattedNumber, depth + 1, visited);
+            } catch (e) {
+              // Company not found in UK registry - that's OK, it might be foreign
+              console.log(`Could not trace ${regNumber}: ${e.message}`);
+            }
           }
         }
 
