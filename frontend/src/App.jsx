@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import html2canvas from 'html2canvas'
 
 // API helper functions
 const api = {
@@ -609,7 +610,29 @@ function OwnershipChainNode({ node, isRoot = false }) {
 }
 
 // Ownership Chain Component
-function OwnershipChain({ chain, loading }) {
+function OwnershipChain({ chain, loading, companyName }) {
+  const diagramRef = useRef(null)
+
+  const downloadDiagram = async () => {
+    if (!diagramRef.current) return
+
+    try {
+      const canvas = await html2canvas(diagramRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2, // Higher resolution
+        logging: false,
+        useCORS: true
+      })
+
+      const link = document.createElement('a')
+      link.download = `${companyName || 'ownership-chain'}_diagram_${new Date().toISOString().split('T')[0]}.png`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    } catch (error) {
+      console.error('Failed to generate diagram:', error)
+    }
+  }
+
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-md p-6 mb-6">
@@ -626,31 +649,44 @@ function OwnershipChain({ chain, loading }) {
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-      <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-        <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-        Ultimate Beneficial Ownership Chain
-      </h2>
-
-      <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
-        <p>This diagram traces corporate ownership through UK-registered companies to identify ultimate beneficial owners.</p>
-        <div className="flex flex-wrap gap-4 mt-2">
-          <span className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-blue-500"></div> Target Company
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-purple-500"></div> Corporate PSC
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-green-500"></div> Individual/Legal Person
-          </span>
-        </div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          Ultimate Beneficial Ownership Chain
+        </h2>
+        <button
+          onClick={downloadDiagram}
+          className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors flex items-center gap-1"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          Download Diagram
+        </button>
       </div>
 
-      <div className="overflow-x-auto">
-        <div className="min-w-max p-4">
-          <OwnershipChainNode node={chain} isRoot={true} />
+      <div ref={diagramRef} className="bg-white">
+        <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+          <p>This diagram traces corporate ownership through UK-registered companies to identify ultimate beneficial owners.</p>
+          <div className="flex flex-wrap gap-4 mt-2">
+            <span className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded-full bg-blue-500"></div> Target Company
+            </span>
+            <span className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded-full bg-purple-500"></div> Corporate PSC
+            </span>
+            <span className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded-full bg-green-500"></div> Individual/Legal Person
+            </span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="min-w-max p-4">
+            <OwnershipChainNode node={chain} isRoot={true} />
+          </div>
         </div>
       </div>
     </div>
@@ -861,7 +897,7 @@ function App() {
                 <PersonsWithSignificantControl pscs={pscs} />
 
                 {(ownershipChain || chainLoading) && (
-                  <OwnershipChain chain={ownershipChain} loading={chainLoading} />
+                  <OwnershipChain chain={ownershipChain} loading={chainLoading} companyName={companyData?.company_name} />
                 )}
               </>
             )}
