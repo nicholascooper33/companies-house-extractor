@@ -77,11 +77,10 @@ function flattenOwnershipChain(node, path = [], results = []) {
       } else {
         // This is an ultimate beneficial owner (individual or non-UK corporate)
         results.push({
-          chain: [...currentPath, psc.name].join(' -> '),
+          chain: [...currentPath, psc.name], // Keep as array for separate cells
           ubo_name: psc.name,
           ubo_type: psc.kind?.replace(/-/g, ' ').replace('person with significant control', 'PSC') || 'Unknown',
-          natures_of_control: (psc.natures_of_control || []).join('; '),
-          depth: currentPath.length
+          natures_of_control: (psc.natures_of_control || []).join('; ')
         })
       }
     }
@@ -147,16 +146,35 @@ function generateCSV(companyData, officers, pscs, ownershipChain) {
   // Ownership Chain Section (if available)
   if (ownershipChain) {
     lines.push('ULTIMATE BENEFICIAL OWNERSHIP CHAIN')
-    lines.push('Ownership Path,UBO Name,UBO Type,Nature of Control,Chain Depth')
     const flatChain = flattenOwnershipChain(ownershipChain)
+
+    // Find the maximum chain length to create dynamic headers
+    const maxChainLength = Math.max(...flatChain.map(row => row.chain.length), 0)
+
+    // Create headers: Level 1 (Target), Level 2, Level 3, ..., UBO Type, Nature of Control
+    const headers = []
+    for (let i = 1; i <= maxChainLength; i++) {
+      if (i === 1) {
+        headers.push('Level 1 (Target Company)')
+      } else if (i === maxChainLength) {
+        headers.push(`Level ${i} (UBO)`)
+      } else {
+        headers.push(`Level ${i}`)
+      }
+    }
+    headers.push('UBO Type', 'Nature of Control')
+    lines.push(headers.join(','))
+
+    // Output each chain with entities in separate cells
     for (const row of flatChain) {
-      lines.push([
-        escapeCSV(row.chain),
-        escapeCSV(row.ubo_name),
-        escapeCSV(row.ubo_type),
-        escapeCSV(row.natures_of_control),
-        escapeCSV(row.depth)
-      ].join(','))
+      const cells = []
+      // Add each entity in the chain to its own cell
+      for (let i = 0; i < maxChainLength; i++) {
+        cells.push(escapeCSV(row.chain[i] || ''))
+      }
+      cells.push(escapeCSV(row.ubo_type))
+      cells.push(escapeCSV(row.natures_of_control))
+      lines.push(cells.join(','))
     }
   }
 
