@@ -1,5 +1,4 @@
-import { useState, useRef } from 'react'
-import html2canvas from 'html2canvas'
+import { useState } from 'react'
 
 // API helper functions
 const api = {
@@ -184,6 +183,213 @@ function generateCSV(companyData, officers, pscs, ownershipChain) {
 
 function downloadCSV(content, filename) {
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+// Structure Chart SVG Generator
+function generateStructureChartSVG(ownershipChain, companyName) {
+  const BOX_WIDTH = 220
+  const BOX_HEIGHT = 70
+  const BOX_PADDING = 12
+  const HORIZONTAL_GAP = 40
+  const VERTICAL_GAP = 60
+  const FONT_SIZE = 12
+  const SMALL_FONT_SIZE = 10
+
+  // Colors
+  const COLORS = {
+    target: { fill: '#DBEAFE', stroke: '#3B82F6', text: '#1E40AF' },
+    corporate: { fill: '#F3E8FF', stroke: '#A855F7', text: '#7E22CE' },
+    individual: { fill: '#DCFCE7', stroke: '#22C55E', text: '#166534' },
+    line: '#94A3B8'
+  }
+
+  // Collect all nodes with their positions
+  const nodes = []
+  const connections = []
+
+  // Calculate tree structure - get width of subtree for each node
+  function getSubtreeWidth(node) {
+    if (!node || !node.pscs || node.pscs.length === 0) return 1
+    let width = 0
+    for (const psc of node.pscs) {
+      if (psc.parent_chain) {
+        width += getSubtreeWidth(psc.parent_chain)
+      } else {
+        width += 1
+      }
+    }
+    return Math.max(width, 1)
+  }
+
+  // Layout the tree
+  function layoutNode(node, depth, xOffset, parentId = null, parentX = null, parentY = null, isCompany = true) {
+    if (!node) return xOffset
+
+    const subtreeWidth = getSubtreeWidth(node)
+    const nodeWidth = subtreeWidth * (BOX_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP
+    const x = xOffset + nodeWidth / 2
+    const y = depth * (BOX_HEIGHT + VERTICAL_GAP) + BOX_PADDING
+
+    const nodeId = nodes.length
+    const nodeType = depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual')
+
+    nodes.push({
+      id: nodeId,
+      x,
+      y,
+      name: node.company_name || node.name || node.company_number || 'Unknown',
+      number: node.company_number || node.identification?.registration_number || '',
+      type: nodeType,
+      natures: node.natures_of_control || []
+    })
+
+    if (parentId !== null) {
+      connections.push({
+        from: { x: parentX, y: parentY + BOX_HEIGHT },
+        to: { x, y }
+      })
+    }
+
+    // Process PSCs (children in the chart - they go below)
+    if (node.pscs && node.pscs.length > 0) {
+      let childXOffset = xOffset
+      for (const psc of node.pscs) {
+        if (psc.parent_chain) {
+          // Corporate PSC with further chain - recurse into the parent company
+          childXOffset = layoutNode(psc.parent_chain, depth + 1, childXOffset, nodeId, x, y, true)
+        } else {
+          // End of chain - this is a UBO (individual or foreign corporate)
+          const childSubtreeWidth = 1
+          const childNodeWidth = childSubtreeWidth * (BOX_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP
+          const childX = childXOffset + childNodeWidth / 2
+          const childY = (depth + 1) * (BOX_HEIGHT + VERTICAL_GAP) + BOX_PADDING
+
+          const childId = nodes.length
+          const isCorporate = psc.kind?.includes('corporate-entity')
+
+          nodes.push({
+            id: childId,
+            x: childX,
+            y: childY,
+            name: psc.name || 'Unknown',
+            number: psc.identification?.registration_number || '',
+            type: isCorporate ? 'corporate' : 'individual',
+            natures: psc.natures_of_control || []
+          })
+
+          connections.push({
+            from: { x, y: y + BOX_HEIGHT },
+            to: { x: childX, y: childY }
+          })
+
+          childXOffset += BOX_WIDTH + HORIZONTAL_GAP
+        }
+      }
+    }
+
+    return xOffset + nodeWidth + HORIZONTAL_GAP
+  }
+
+  // Start layout from root
+  layoutNode(ownershipChain, 0, BOX_PADDING)
+
+  // Calculate SVG dimensions
+  const maxX = Math.max(...nodes.map(n => n.x)) + BOX_WIDTH / 2 + BOX_PADDING
+  const maxY = Math.max(...nodes.map(n => n.y)) + BOX_HEIGHT + BOX_PADDING * 2
+  const svgWidth = Math.max(maxX, 400)
+  const svgHeight = maxY + 80 // Extra space for legend
+
+  // Helper to truncate text
+  function truncateText(text, maxLength) {
+    if (!text) return ''
+    return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text
+  }
+
+  // Helper to format natures of control
+  function formatNatures(natures) {
+    if (!natures || natures.length === 0) return ''
+    const formatted = natures.map(n =>
+      n.replace(/-/g, ' ')
+        .replace(/ownership of shares/i, 'Owns')
+        .replace(/voting rights/i, 'Voting')
+        .replace(/right to appoint and remove directors/i, 'Appoint directors')
+        .replace(/significant influence or control/i, 'Significant control')
+        .replace(/percent/i, '%')
+    )
+    return formatted.slice(0, 2).join(', ')
+  }
+
+  // Build SVG
+  let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}">
+  <defs>
+    <style>
+      .box-text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      .company-name { font-size: ${FONT_SIZE}px; font-weight: 600; }
+      .company-number { font-size: ${SMALL_FONT_SIZE}px; font-family: monospace; }
+      .control-info { font-size: ${SMALL_FONT_SIZE - 1}px; fill: #6B7280; }
+      .legend-text { font-size: ${SMALL_FONT_SIZE}px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="100%" height="100%" fill="white"/>
+
+  <!-- Title -->
+  <text x="${svgWidth / 2}" y="25" text-anchor="middle" class="box-text" style="font-size: 14px; font-weight: bold; fill: #1F2937;">
+    Ownership Structure: ${truncateText(companyName || 'Company', 50)}
+  </text>
+`
+
+  // Draw connections first (so they appear behind boxes)
+  svg += '\n  <!-- Connections -->\n'
+  for (const conn of connections) {
+    const midY = (conn.from.y + conn.to.y) / 2
+    svg += `  <path d="M ${conn.from.x} ${conn.from.y + 40} L ${conn.from.x} ${midY} L ${conn.to.x} ${midY} L ${conn.to.x} ${conn.to.y + 40}" fill="none" stroke="${COLORS.line}" stroke-width="2"/>\n`
+  }
+
+  // Draw nodes
+  svg += '\n  <!-- Nodes -->\n'
+  for (const node of nodes) {
+    const colors = COLORS[node.type]
+    const boxX = node.x - BOX_WIDTH / 2
+    const boxY = node.y + 40 // Offset for title
+
+    svg += `  <g transform="translate(${boxX}, ${boxY})">
+    <rect width="${BOX_WIDTH}" height="${BOX_HEIGHT}" rx="8" fill="${colors.fill}" stroke="${colors.stroke}" stroke-width="2"/>
+    <text x="${BOX_WIDTH / 2}" y="20" text-anchor="middle" class="box-text company-name" fill="${colors.text}">${truncateText(node.name, 28)}</text>
+    <text x="${BOX_WIDTH / 2}" y="38" text-anchor="middle" class="company-number" fill="${colors.text}">${node.number || ''}</text>
+    <text x="${BOX_WIDTH / 2}" y="54" text-anchor="middle" class="control-info">${truncateText(formatNatures(node.natures), 35)}</text>
+  </g>\n`
+  }
+
+  // Add legend
+  const legendY = maxY + 50
+  svg += `
+  <!-- Legend -->
+  <g transform="translate(${BOX_PADDING}, ${legendY})">
+    <rect width="16" height="16" rx="3" fill="${COLORS.target.fill}" stroke="${COLORS.target.stroke}" stroke-width="1.5"/>
+    <text x="22" y="12" class="legend-text" fill="#374151">Target Company</text>
+
+    <rect x="130" width="16" height="16" rx="3" fill="${COLORS.corporate.fill}" stroke="${COLORS.corporate.stroke}" stroke-width="1.5"/>
+    <text x="152" y="12" class="legend-text" fill="#374151">Corporate Entity</text>
+
+    <rect x="280" width="16" height="16" rx="3" fill="${COLORS.individual.fill}" stroke="${COLORS.individual.stroke}" stroke-width="1.5"/>
+    <text x="302" y="12" class="legend-text" fill="#374151">Individual / UBO</text>
+  </g>
+`
+
+  svg += '</svg>'
+  return svg
+}
+
+function downloadSVG(content, filename) {
+  const blob = new Blob([content], { type: 'image/svg+xml;charset=utf-8' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = filename
@@ -611,26 +817,11 @@ function OwnershipChainNode({ node, isRoot = false }) {
 
 // Ownership Chain Component
 function OwnershipChain({ chain, loading, companyName }) {
-  const diagramRef = useRef(null)
-
-  const downloadDiagram = async () => {
-    if (!diagramRef.current) return
-
-    try {
-      const canvas = await html2canvas(diagramRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2, // Higher resolution
-        logging: false,
-        useCORS: true
-      })
-
-      const link = document.createElement('a')
-      link.download = `${companyName || 'ownership-chain'}_diagram_${new Date().toISOString().split('T')[0]}.png`.replace(/[^a-zA-Z0-9_.-]/g, '_')
-      link.href = canvas.toDataURL('image/png')
-      link.click()
-    } catch (error) {
-      console.error('Failed to generate diagram:', error)
-    }
+  const downloadStructureChart = () => {
+    if (!chain) return
+    const svg = generateStructureChartSVG(chain, companyName)
+    const filename = `${companyName || 'ownership-chain'}_structure_${new Date().toISOString().split('T')[0]}.svg`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+    downloadSVG(svg, filename)
   }
 
   if (loading) {
@@ -657,36 +848,34 @@ function OwnershipChain({ chain, loading, companyName }) {
           Ultimate Beneficial Ownership Chain
         </h2>
         <button
-          onClick={downloadDiagram}
+          onClick={downloadStructureChart}
           className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors flex items-center gap-1"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
-          Download Diagram
+          Download Structure Chart
         </button>
       </div>
 
-      <div ref={diagramRef} className="bg-white">
-        <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
-          <p>This diagram traces corporate ownership through UK-registered companies to identify ultimate beneficial owners.</p>
-          <div className="flex flex-wrap gap-4 mt-2">
-            <span className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-full bg-blue-500"></div> Target Company
-            </span>
-            <span className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-full bg-purple-500"></div> Corporate PSC
-            </span>
-            <span className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-full bg-green-500"></div> Individual/Legal Person
-            </span>
-          </div>
+      <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+        <p>This diagram traces corporate ownership through UK-registered companies to identify ultimate beneficial owners.</p>
+        <div className="flex flex-wrap gap-4 mt-2">
+          <span className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full bg-blue-500"></div> Target Company
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full bg-purple-500"></div> Corporate PSC
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full bg-green-500"></div> Individual/Legal Person
+          </span>
         </div>
+      </div>
 
-        <div className="overflow-x-auto">
-          <div className="min-w-max p-4">
-            <OwnershipChainNode node={chain} isRoot={true} />
-          </div>
+      <div className="overflow-x-auto">
+        <div className="min-w-max p-4">
+          <OwnershipChainNode node={chain} isRoot={true} />
         </div>
       </div>
     </div>
