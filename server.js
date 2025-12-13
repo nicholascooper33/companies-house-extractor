@@ -142,7 +142,16 @@ async function traceOwnershipChain(companyNumber, depth = 0, visited = new Set()
 
           // If it's a UK company, try to trace further up the chain
           const regNumber = psc.identification.registration_number;
-          if (regNumber && psc.identification.place_registered?.toLowerCase().includes('companies house')) {
+          const placeRegistered = (psc.identification.place_registered || '').toLowerCase();
+          const isUKCompany = placeRegistered.includes('companies house') ||
+                              placeRegistered.includes('england') ||
+                              placeRegistered.includes('wales') ||
+                              placeRegistered.includes('scotland') ||
+                              placeRegistered.includes('united kingdom') ||
+                              placeRegistered.includes('uk') ||
+                              placeRegistered.includes('northern ireland');
+
+          if (regNumber && isUKCompany) {
             // Format the company number (pad with zeros if needed)
             const formattedNumber = regNumber.toString().padStart(8, '0');
             pscInfo.parent_chain = await traceOwnershipChain(formattedNumber, depth + 1, visited);
