@@ -55,6 +55,123 @@ function formatNatureOfControl(nature) {
     .replace(/percent/i, '%')
 }
 
+// CSV Helper functions
+function escapeCSV(value) {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
+function flattenOwnershipChain(node, path = [], results = []) {
+  if (!node || node.circular_reference) return results
+
+  const currentPath = [...path, node.company_name || node.company_number]
+
+  if (node.pscs) {
+    for (const psc of node.pscs) {
+      if (psc.kind?.includes('corporate-entity') && psc.parent_chain) {
+        flattenOwnershipChain(psc.parent_chain, currentPath, results)
+      } else {
+        // This is an ultimate beneficial owner (individual or non-UK corporate)
+        results.push({
+          chain: [...currentPath, psc.name].join(' -> '),
+          ubo_name: psc.name,
+          ubo_type: psc.kind?.replace(/-/g, ' ').replace('person with significant control', 'PSC') || 'Unknown',
+          natures_of_control: (psc.natures_of_control || []).join('; '),
+          depth: currentPath.length
+        })
+      }
+    }
+  }
+
+  return results
+}
+
+function generateCSV(companyData, officers, pscs, ownershipChain) {
+  const lines = []
+
+  // Company Information Section
+  lines.push('COMPANY INFORMATION')
+  lines.push('Field,Value')
+  lines.push(`Company Name,${escapeCSV(companyData?.company_name)}`)
+  lines.push(`Company Number,${escapeCSV(companyData?.company_number)}`)
+  lines.push(`Status,${escapeCSV(companyData?.company_status)}`)
+  lines.push(`Type,${escapeCSV(companyData?.type)}`)
+  lines.push(`Incorporated,${escapeCSV(companyData?.date_of_creation)}`)
+  if (companyData?.date_of_cessation) {
+    lines.push(`Dissolved,${escapeCSV(companyData?.date_of_cessation)}`)
+  }
+  lines.push(`Registered Address,${escapeCSV(formatAddress(companyData?.registered_office_address))}`)
+  if (companyData?.sic_codes?.length) {
+    lines.push(`SIC Codes,${escapeCSV(companyData.sic_codes.join(', '))}`)
+  }
+  lines.push('')
+
+  // Officers Section
+  lines.push('OFFICERS')
+  lines.push('Name,Role,Appointed,Nationality,Occupation,Address')
+  const activeOfficers = (officers || []).filter(o => !o.resigned_on)
+  for (const officer of activeOfficers) {
+    lines.push([
+      escapeCSV(officer.name),
+      escapeCSV(officer.officer_role?.replace(/-/g, ' ')),
+      escapeCSV(officer.appointed_on),
+      escapeCSV(officer.nationality),
+      escapeCSV(officer.occupation),
+      escapeCSV(formatAddress(officer.address))
+    ].join(','))
+  }
+  lines.push('')
+
+  // PSC Section
+  lines.push('PERSONS WITH SIGNIFICANT CONTROL')
+  lines.push('Name,Type,Nature of Control,Nationality,Country,Registration Number,Place Registered,Address')
+  const activePSCs = (pscs || []).filter(p => !p.ceased_on)
+  for (const psc of activePSCs) {
+    lines.push([
+      escapeCSV(psc.name),
+      escapeCSV(psc.kind?.replace(/-/g, ' ').replace('person with significant control', 'PSC')),
+      escapeCSV((psc.natures_of_control || []).map(n => formatNatureOfControl(n)).join('; ')),
+      escapeCSV(psc.nationality),
+      escapeCSV(psc.country_of_residence),
+      escapeCSV(psc.identification?.registration_number),
+      escapeCSV(psc.identification?.place_registered),
+      escapeCSV(formatAddress(psc.address))
+    ].join(','))
+  }
+  lines.push('')
+
+  // Ownership Chain Section (if available)
+  if (ownershipChain) {
+    lines.push('ULTIMATE BENEFICIAL OWNERSHIP CHAIN')
+    lines.push('Ownership Path,UBO Name,UBO Type,Nature of Control,Chain Depth')
+    const flatChain = flattenOwnershipChain(ownershipChain)
+    for (const row of flatChain) {
+      lines.push([
+        escapeCSV(row.chain),
+        escapeCSV(row.ubo_name),
+        escapeCSV(row.ubo_type),
+        escapeCSV(row.natures_of_control),
+        escapeCSV(row.depth)
+      ].join(','))
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function downloadCSV(content, filename) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
 // Search Results Component
 function SearchResults({ results, onSelect, loading }) {
   if (loading) {
@@ -632,12 +749,28 @@ function App() {
               </div>
             </div>
             {selectedCompany && (
-              <button
-                onClick={handleReset}
-                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                New Search
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const csv = generateCSV(companyData, officers, pscs, ownershipChain)
+                    const filename = `${companyData?.company_name || selectedCompany}_${new Date().toISOString().split('T')[0]}.csv`
+                    downloadCSV(csv, filename.replace(/[^a-zA-Z0-9_-]/g, '_'))
+                  }}
+                  disabled={!companyData}
+                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Download CSV
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  New Search
+                </button>
+              </div>
             )}
           </div>
         </div>

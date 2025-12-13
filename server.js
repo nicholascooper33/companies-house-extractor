@@ -92,10 +92,10 @@ app.get('/api/company/:companyNumber/pscs', async (req, res) => {
 });
 
 // Recursive function to trace corporate ownership chain
-async function traceOwnershipChain(companyNumber, depth = 0, maxDepth = 10, visited = new Set()) {
-  // Prevent infinite loops and excessive depth
-  if (depth >= maxDepth || visited.has(companyNumber)) {
-    return null;
+async function traceOwnershipChain(companyNumber, depth = 0, visited = new Set()) {
+  // Prevent infinite loops (circular ownership)
+  if (visited.has(companyNumber)) {
+    return { company_number: companyNumber, circular_reference: true, depth };
   }
 
   visited.add(companyNumber);
@@ -145,7 +145,7 @@ async function traceOwnershipChain(companyNumber, depth = 0, maxDepth = 10, visi
           if (regNumber && psc.identification.place_registered?.toLowerCase().includes('companies house')) {
             // Format the company number (pad with zeros if needed)
             const formattedNumber = regNumber.toString().padStart(8, '0');
-            pscInfo.parent_chain = await traceOwnershipChain(formattedNumber, depth + 1, maxDepth, visited);
+            pscInfo.parent_chain = await traceOwnershipChain(formattedNumber, depth + 1, visited);
           }
         }
 
