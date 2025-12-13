@@ -192,13 +192,15 @@ function downloadCSV(content, filename) {
 
 // Structure Chart SVG Generator
 function generateStructureChartSVG(ownershipChain, companyName) {
-  const BOX_WIDTH = 220
-  const BOX_HEIGHT = 70
+  const BOX_WIDTH = 250
+  const MIN_BOX_HEIGHT = 60
   const BOX_PADDING = 12
   const HORIZONTAL_GAP = 40
-  const VERTICAL_GAP = 60
-  const FONT_SIZE = 12
+  const VERTICAL_GAP = 50
+  const FONT_SIZE = 11
   const SMALL_FONT_SIZE = 10
+  const LINE_HEIGHT = 14
+  const CHARS_PER_LINE = 32
 
   // Colors
   const COLORS = {
@@ -208,7 +210,127 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     line: '#94A3B8'
   }
 
-  // Collect all nodes with their positions
+  // Helper to wrap text into multiple lines
+  function wrapText(text, maxCharsPerLine) {
+    if (!text) return ['']
+    const words = text.split(' ')
+    const lines = []
+    let currentLine = ''
+
+    for (const word of words) {
+      if (currentLine.length + word.length + 1 <= maxCharsPerLine) {
+        currentLine += (currentLine ? ' ' : '') + word
+      } else {
+        if (currentLine) lines.push(currentLine)
+        // Handle very long words
+        if (word.length > maxCharsPerLine) {
+          let remaining = word
+          while (remaining.length > maxCharsPerLine) {
+            lines.push(remaining.substring(0, maxCharsPerLine - 1) + '-')
+            remaining = remaining.substring(maxCharsPerLine - 1)
+          }
+          currentLine = remaining
+        } else {
+          currentLine = word
+        }
+      }
+    }
+    if (currentLine) lines.push(currentLine)
+    return lines.length > 0 ? lines : ['']
+  }
+
+  // Helper to format natures of control
+  function formatNatures(natures) {
+    if (!natures || natures.length === 0) return []
+    const formatted = natures.map(n =>
+      n.replace(/-/g, ' ')
+        .replace(/ownership of shares/i, 'Owns')
+        .replace(/voting rights/i, 'Voting')
+        .replace(/right to appoint and remove directors/i, 'Appoint directors')
+        .replace(/significant influence or control/i, 'Significant control')
+        .replace(/percent/i, '%')
+    )
+    return formatted
+  }
+
+  // Calculate box height based on content
+  function calculateBoxHeight(nameLines, hasNumber, naturesCount) {
+    const nameHeight = nameLines.length * LINE_HEIGHT
+    const numberHeight = hasNumber ? LINE_HEIGHT : 0
+    const naturesHeight = Math.min(naturesCount, 2) * (LINE_HEIGHT - 2)
+    return Math.max(MIN_BOX_HEIGHT, nameHeight + numberHeight + naturesHeight + 20)
+  }
+
+  // First pass: collect all nodes and calculate their heights
+  const nodeData = []
+
+  function collectNodes(node, depth, isCompany = true) {
+    if (!node) return
+
+    const name = node.company_name || node.name || node.company_number || 'Unknown'
+    const number = node.company_number || node.identification?.registration_number || ''
+    const natures = node.natures_of_control || []
+    const nameLines = wrapText(name, CHARS_PER_LINE)
+    const height = calculateBoxHeight(nameLines, !!number, natures.length)
+
+    nodeData.push({
+      depth,
+      name,
+      nameLines,
+      number,
+      natures: formatNatures(natures),
+      type: depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual'),
+      height,
+      isCompany
+    })
+
+    if (node.pscs) {
+      for (const psc of node.pscs) {
+        if (psc.parent_chain) {
+          collectNodes(psc.parent_chain, depth + 1, true)
+        } else {
+          const pscName = psc.name || 'Unknown'
+          const pscNumber = psc.identification?.registration_number || ''
+          const pscNatures = psc.natures_of_control || []
+          const pscNameLines = wrapText(pscName, CHARS_PER_LINE)
+          const pscHeight = calculateBoxHeight(pscNameLines, !!pscNumber, pscNatures.length)
+          const isCorporate = psc.kind?.includes('corporate-entity')
+
+          nodeData.push({
+            depth: depth + 1,
+            name: pscName,
+            nameLines: pscNameLines,
+            number: pscNumber,
+            natures: formatNatures(pscNatures),
+            type: isCorporate ? 'corporate' : 'individual',
+            height: pscHeight,
+            isCompany: false
+          })
+        }
+      }
+    }
+  }
+
+  collectNodes(ownershipChain, 0, true)
+
+  // Calculate max height per depth level
+  const maxHeightPerDepth = {}
+  for (const node of nodeData) {
+    if (!maxHeightPerDepth[node.depth] || node.height > maxHeightPerDepth[node.depth]) {
+      maxHeightPerDepth[node.depth] = node.height
+    }
+  }
+
+  // Calculate Y positions for each depth level
+  const yPositionPerDepth = {}
+  let currentY = BOX_PADDING + 40 // Account for title
+  const depths = Object.keys(maxHeightPerDepth).map(Number).sort((a, b) => a - b)
+  for (const depth of depths) {
+    yPositionPerDepth[depth] = currentY
+    currentY += maxHeightPerDepth[depth] + VERTICAL_GAP
+  }
+
+  // Collect all nodes with positions
   const nodes = []
   const connections = []
 
@@ -226,14 +348,20 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     return Math.max(width, 1)
   }
 
-  // Layout the tree
-  function layoutNode(node, depth, xOffset, parentId = null, parentX = null, parentY = null, isCompany = true) {
+  // Layout the tree with proper heights
+  function layoutNode(node, depth, xOffset, parentId = null, parentX = null, parentY = null, parentHeight = 0, isCompany = true) {
     if (!node) return xOffset
 
     const subtreeWidth = getSubtreeWidth(node)
     const nodeWidth = subtreeWidth * (BOX_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP
     const x = xOffset + nodeWidth / 2
-    const y = depth * (BOX_HEIGHT + VERTICAL_GAP) + BOX_PADDING
+    const y = yPositionPerDepth[depth]
+
+    const name = node.company_name || node.name || node.company_number || 'Unknown'
+    const number = node.company_number || node.identification?.registration_number || ''
+    const natures = node.natures_of_control || []
+    const nameLines = wrapText(name, CHARS_PER_LINE)
+    const height = maxHeightPerDepth[depth]
 
     const nodeId = nodes.length
     const nodeType = depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual')
@@ -242,48 +370,52 @@ function generateStructureChartSVG(ownershipChain, companyName) {
       id: nodeId,
       x,
       y,
-      name: node.company_name || node.name || node.company_number || 'Unknown',
-      number: node.company_number || node.identification?.registration_number || '',
+      nameLines,
+      number,
       type: nodeType,
-      natures: node.natures_of_control || []
+      natures: formatNatures(natures),
+      height
     })
 
     if (parentId !== null) {
       connections.push({
-        from: { x: parentX, y: parentY + BOX_HEIGHT },
+        from: { x: parentX, y: parentY + parentHeight },
         to: { x, y }
       })
     }
 
-    // Process PSCs (children in the chart - they go below)
+    // Process PSCs
     if (node.pscs && node.pscs.length > 0) {
       let childXOffset = xOffset
       for (const psc of node.pscs) {
         if (psc.parent_chain) {
-          // Corporate PSC with further chain - recurse into the parent company
-          childXOffset = layoutNode(psc.parent_chain, depth + 1, childXOffset, nodeId, x, y, true)
+          childXOffset = layoutNode(psc.parent_chain, depth + 1, childXOffset, nodeId, x, y, height, true)
         } else {
-          // End of chain - this is a UBO (individual or foreign corporate)
           const childSubtreeWidth = 1
           const childNodeWidth = childSubtreeWidth * (BOX_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP
           const childX = childXOffset + childNodeWidth / 2
-          const childY = (depth + 1) * (BOX_HEIGHT + VERTICAL_GAP) + BOX_PADDING
+          const childY = yPositionPerDepth[depth + 1]
+          const childHeight = maxHeightPerDepth[depth + 1]
 
           const childId = nodes.length
           const isCorporate = psc.kind?.includes('corporate-entity')
+          const pscName = psc.name || 'Unknown'
+          const pscNumber = psc.identification?.registration_number || ''
+          const pscNatures = psc.natures_of_control || []
 
           nodes.push({
             id: childId,
             x: childX,
             y: childY,
-            name: psc.name || 'Unknown',
-            number: psc.identification?.registration_number || '',
+            nameLines: wrapText(pscName, CHARS_PER_LINE),
+            number: pscNumber,
             type: isCorporate ? 'corporate' : 'individual',
-            natures: psc.natures_of_control || []
+            natures: formatNatures(pscNatures),
+            height: childHeight
           })
 
           connections.push({
-            from: { x, y: y + BOX_HEIGHT },
+            from: { x, y: y + height },
             to: { x: childX, y: childY }
           })
 
@@ -300,28 +432,18 @@ function generateStructureChartSVG(ownershipChain, companyName) {
 
   // Calculate SVG dimensions
   const maxX = Math.max(...nodes.map(n => n.x)) + BOX_WIDTH / 2 + BOX_PADDING
-  const maxY = Math.max(...nodes.map(n => n.y)) + BOX_HEIGHT + BOX_PADDING * 2
+  const maxY = Math.max(...nodes.map(n => n.y + n.height)) + BOX_PADDING
   const svgWidth = Math.max(maxX, 400)
-  const svgHeight = maxY + 80 // Extra space for legend
+  const svgHeight = maxY + 60 // Extra space for legend
 
-  // Helper to truncate text
-  function truncateText(text, maxLength) {
-    if (!text) return ''
-    return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text
-  }
-
-  // Helper to format natures of control
-  function formatNatures(natures) {
-    if (!natures || natures.length === 0) return ''
-    const formatted = natures.map(n =>
-      n.replace(/-/g, ' ')
-        .replace(/ownership of shares/i, 'Owns')
-        .replace(/voting rights/i, 'Voting')
-        .replace(/right to appoint and remove directors/i, 'Appoint directors')
-        .replace(/significant influence or control/i, 'Significant control')
-        .replace(/percent/i, '%')
-    )
-    return formatted.slice(0, 2).join(', ')
+  // Escape XML special characters
+  function escapeXML(text) {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
   }
 
   // Build SVG
@@ -342,7 +464,7 @@ function generateStructureChartSVG(ownershipChain, companyName) {
 
   <!-- Title -->
   <text x="${svgWidth / 2}" y="25" text-anchor="middle" class="box-text" style="font-size: 14px; font-weight: bold; fill: #1F2937;">
-    Ownership Structure: ${truncateText(companyName || 'Company', 50)}
+    Ownership Structure: ${escapeXML(companyName || 'Company')}
   </text>
 `
 
@@ -350,7 +472,7 @@ function generateStructureChartSVG(ownershipChain, companyName) {
   svg += '\n  <!-- Connections -->\n'
   for (const conn of connections) {
     const midY = (conn.from.y + conn.to.y) / 2
-    svg += `  <path d="M ${conn.from.x} ${conn.from.y + 40} L ${conn.from.x} ${midY} L ${conn.to.x} ${midY} L ${conn.to.x} ${conn.to.y + 40}" fill="none" stroke="${COLORS.line}" stroke-width="2"/>\n`
+    svg += `  <path d="M ${conn.from.x} ${conn.from.y} L ${conn.from.x} ${midY} L ${conn.to.x} ${midY} L ${conn.to.x} ${conn.to.y}" fill="none" stroke="${COLORS.line}" stroke-width="2"/>\n`
   }
 
   // Draw nodes
@@ -358,29 +480,48 @@ function generateStructureChartSVG(ownershipChain, companyName) {
   for (const node of nodes) {
     const colors = COLORS[node.type]
     const boxX = node.x - BOX_WIDTH / 2
-    const boxY = node.y + 40 // Offset for title
 
-    svg += `  <g transform="translate(${boxX}, ${boxY})">
-    <rect width="${BOX_WIDTH}" height="${BOX_HEIGHT}" rx="8" fill="${colors.fill}" stroke="${colors.stroke}" stroke-width="2"/>
-    <text x="${BOX_WIDTH / 2}" y="20" text-anchor="middle" class="box-text company-name" fill="${colors.text}">${truncateText(node.name, 28)}</text>
-    <text x="${BOX_WIDTH / 2}" y="38" text-anchor="middle" class="company-number" fill="${colors.text}">${node.number || ''}</text>
-    <text x="${BOX_WIDTH / 2}" y="54" text-anchor="middle" class="control-info">${truncateText(formatNatures(node.natures), 35)}</text>
+    // Calculate text positions
+    let textY = 18
+    const nameTextElements = node.nameLines.map((line, i) => {
+      const y = textY + (i * LINE_HEIGHT)
+      return `    <text x="${BOX_WIDTH / 2}" y="${y}" text-anchor="middle" class="box-text company-name" fill="${colors.text}">${escapeXML(line)}</text>`
+    }).join('\n')
+
+    textY += node.nameLines.length * LINE_HEIGHT + 4
+
+    const numberElement = node.number
+      ? `    <text x="${BOX_WIDTH / 2}" y="${textY}" text-anchor="middle" class="company-number" fill="${colors.text}">${escapeXML(node.number)}</text>`
+      : ''
+
+    if (node.number) textY += LINE_HEIGHT
+
+    const naturesElements = node.natures.slice(0, 2).map((nature, i) => {
+      const y = textY + (i * (LINE_HEIGHT - 2))
+      return `    <text x="${BOX_WIDTH / 2}" y="${y}" text-anchor="middle" class="control-info">${escapeXML(nature)}</text>`
+    }).join('\n')
+
+    svg += `  <g transform="translate(${boxX}, ${node.y})">
+    <rect width="${BOX_WIDTH}" height="${node.height}" rx="8" fill="${colors.fill}" stroke="${colors.stroke}" stroke-width="2"/>
+${nameTextElements}
+${numberElement}
+${naturesElements}
   </g>\n`
   }
 
   // Add legend
-  const legendY = maxY + 50
+  const legendY = maxY + 20
   svg += `
   <!-- Legend -->
   <g transform="translate(${BOX_PADDING}, ${legendY})">
     <rect width="16" height="16" rx="3" fill="${COLORS.target.fill}" stroke="${COLORS.target.stroke}" stroke-width="1.5"/>
     <text x="22" y="12" class="legend-text" fill="#374151">Target Company</text>
 
-    <rect x="130" width="16" height="16" rx="3" fill="${COLORS.corporate.fill}" stroke="${COLORS.corporate.stroke}" stroke-width="1.5"/>
-    <text x="152" y="12" class="legend-text" fill="#374151">Corporate Entity</text>
+    <rect x="140" width="16" height="16" rx="3" fill="${COLORS.corporate.fill}" stroke="${COLORS.corporate.stroke}" stroke-width="1.5"/>
+    <text x="162" y="12" class="legend-text" fill="#374151">Corporate Entity</text>
 
-    <rect x="280" width="16" height="16" rx="3" fill="${COLORS.individual.fill}" stroke="${COLORS.individual.stroke}" stroke-width="1.5"/>
-    <text x="302" y="12" class="legend-text" fill="#374151">Individual / UBO</text>
+    <rect x="290" width="16" height="16" rx="3" fill="${COLORS.individual.fill}" stroke="${COLORS.individual.stroke}" stroke-width="1.5"/>
+    <text x="312" y="12" class="legend-text" fill="#374151">Individual / UBO</text>
   </g>
 `
 
