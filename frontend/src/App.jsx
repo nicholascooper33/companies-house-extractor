@@ -849,21 +849,22 @@ function CrossDirectorshipSearch({ onBack }) {
 
   const handleSearch = async (e) => {
     e.preventDefault()
-    if (!searchQuery.trim() || !dobMonth || !dobYear) return
+    if (!searchQuery.trim()) return
     setSearchLoading(true)
     setError(null)
     setSearchResults(null)
     setSelectedOfficerIds(new Set())
     try {
-      // Use find-related endpoint with DOB filtering from the start
-      const data = await api.findRelatedOfficers(searchQuery, dobMonth, dobYear)
+      // Use find-related endpoint with optional DOB filtering
+      const data = await api.findRelatedOfficers(searchQuery, dobMonth || null, dobYear || null)
       if (data.items && data.items.length > 0) {
         setSearchResults(data.items)
         // Auto-select all results initially
         setSelectedOfficerIds(new Set(data.items.map(o => o.officer_id).filter(Boolean)))
         setStep(2)
       } else {
-        setError(`No directors found matching "${searchQuery}" with DOB ${monthNames[parseInt(dobMonth) - 1]} ${dobYear}. Check the spelling and date of birth.`)
+        const dobText = dobMonth && dobYear ? ` with DOB ${monthNames[parseInt(dobMonth) - 1]} ${dobYear}` : ''
+        setError(`No directors found matching "${searchQuery}"${dobText}. Check the spelling${dobMonth && dobYear ? ' and date of birth' : ''}.`)
       }
     } catch (err) {
       setError('Search failed. Please try again.')
@@ -1010,7 +1011,7 @@ function CrossDirectorshipSearch({ onBack }) {
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-xl shadow-lg p-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Director</h2>
-            <p className="text-gray-600 mb-6">Enter the director's name and date of birth. The DOB helps filter results since many people share the same name.</p>
+            <p className="text-gray-600 mb-6">Enter the director's name. Adding date of birth helps filter results for common names.</p>
             <form onSubmit={handleSearch} className="space-y-4">
               <div>
                 <label htmlFor="officer-search" className="block text-sm font-medium text-gray-700 mb-1">Director name</label>
@@ -1018,7 +1019,7 @@ function CrossDirectorshipSearch({ onBack }) {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="dob-month" className="block text-sm font-medium text-gray-700 mb-1">Month of birth</label>
+                  <label htmlFor="dob-month" className="block text-sm font-medium text-gray-700 mb-1">Month of birth <span className="text-gray-400 font-normal">(optional)</span></label>
                   <select id="dob-month" value={dobMonth} onChange={(e) => setDobMonth(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors">
                     <option value="">Select month</option>
                     {monthNames.map((month, idx) => (
@@ -1027,7 +1028,7 @@ function CrossDirectorshipSearch({ onBack }) {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="dob-year" className="block text-sm font-medium text-gray-700 mb-1">Year of birth</label>
+                  <label htmlFor="dob-year" className="block text-sm font-medium text-gray-700 mb-1">Year of birth <span className="text-gray-400 font-normal">(optional)</span></label>
                   <select id="dob-year" value={dobYear} onChange={(e) => setDobYear(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors">
                     <option value="">Select year</option>
                     {yearOptions.map((year) => (
@@ -1036,9 +1037,12 @@ function CrossDirectorshipSearch({ onBack }) {
                   </select>
                 </div>
               </div>
-              <button type="submit" disabled={searchLoading || !searchQuery.trim() || !dobMonth || !dobYear} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
             </form>
             <p className="mt-4 text-xs text-gray-500 text-center">Companies House only stores month and year of birth for privacy.</p>
+            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs text-amber-700">Note: Results may not be complete due to Companies House search indexing. Some records for the same person may be stored under different name variations.</p>
+            </div>
           </div>
         </div>
       )}
@@ -1049,7 +1053,7 @@ function CrossDirectorshipSearch({ onBack }) {
           <div className="bg-white rounded-xl shadow-lg p-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Select Matching Records</h2>
             <p className="text-gray-600 mb-6">
-              Found {searchResults.length} record{searchResults.length !== 1 ? 's' : ''} for directors born in {monthNames[parseInt(dobMonth) - 1]} {dobYear}.
+              Found {searchResults.length} record{searchResults.length !== 1 ? 's' : ''}{dobMonth && dobYear ? ` for directors born in ${monthNames[parseInt(dobMonth) - 1]} ${dobYear}` : ` matching "${searchQuery}"`}.
               All records are selected by default. Uncheck any that don't belong to the person you're searching for.
             </p>
 
