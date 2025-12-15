@@ -301,15 +301,34 @@ app.get('/api/officers/find-related', async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
+    // Normalize a string: lowercase, remove/standardize special characters
+    const normalize = (str) => {
+      return str.toLowerCase()
+        .replace(/[''`]/g, "'")  // Standardize apostrophes
+        .replace(/[""]/g, '"')   // Standardize quotes
+        .trim();
+    };
+
     // Extract surname (last word) and first name for matching
     const nameParts = name.trim().split(/\s+/);
-    const surname = nameParts[nameParts.length - 1].toLowerCase();
-    const firstName = nameParts[0].toLowerCase();
+    const surname = normalize(nameParts[nameParts.length - 1]);
+    const firstName = normalize(nameParts[0]);
 
     // Helper function to check if an officer name matches (first name + surname, ignoring middle names)
     const nameMatches = (officerName) => {
       if (!officerName) return false;
-      const parts = officerName.trim().split(/\s+/).map(p => p.toLowerCase());
+      const normalized = normalize(officerName);
+
+      // Handle "SURNAME, FirstName" format
+      if (normalized.includes(',')) {
+        const [surnamePartRaw, ...rest] = normalized.split(',');
+        const surnamePart = surnamePartRaw.trim();
+        const firstPart = rest.join(',').trim().split(/\s+/)[0]; // First word after comma
+        return firstPart === firstName && surnamePart === surname;
+      }
+
+      // Handle "FirstName MiddleName Surname" format
+      const parts = normalized.split(/\s+/);
       if (parts.length < 2) return false;
       const officerFirst = parts[0];
       const officerSurname = parts[parts.length - 1];
