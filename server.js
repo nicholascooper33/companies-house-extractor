@@ -316,7 +316,9 @@ app.get('/api/officers/find-related', async (req, res) => {
       return officerFirst === firstName && officerSurname === surname;
     };
 
-    // Search by surname to find all variations (Nicholas Cooper, Nicholas Matthew Cooper, etc.)
+    // Search for "firstName surname" - the API does fuzzy matching so will also find
+    // "Nicholas Matthew Cooper" when searching "Nicholas Cooper"
+    const searchQuery = `${firstName} ${surname}`;
     const allResults = [];
     const seenOfficerIds = new Set();
 
@@ -328,7 +330,7 @@ app.get('/api/officers/find-related', async (req, res) => {
     for (let page = 0; page < maxPages; page++) {
       try {
         const data = await fetchFromCompaniesHouse(
-          `/search/officers?q=${encodeURIComponent(surname)}&items_per_page=${itemsPerPage}&start_index=${startIndex}`
+          `/search/officers?q=${encodeURIComponent(searchQuery)}&items_per_page=${itemsPerPage}&start_index=${startIndex}`
         );
 
         if (!data.items || data.items.length === 0) break;
