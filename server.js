@@ -301,62 +301,76 @@ app.get('/api/officers/find-related', async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    // Extract surname (last word) and first name for variation searches
-    const nameParts = name.trim().split(' ');
-    const surname = nameParts[nameParts.length - 1];
-    const firstName = nameParts[0];
+    // Extract surname (last word) and first name for matching
+    const nameParts = name.trim().split(/\s+/);
+    const surname = nameParts[nameParts.length - 1].toLowerCase();
+    const firstName = nameParts[0].toLowerCase();
 
-    // Search variations to find potential matches
-    const searchQueries = [
-      name, // Full name as provided
-      surname, // Just surname
-      `${firstName} ${surname}` // First + Last (no middle names)
-    ];
+    // Helper function to check if an officer name matches (first name + surname, ignoring middle names)
+    const nameMatches = (officerName) => {
+      if (!officerName) return false;
+      const parts = officerName.trim().split(/\s+/).map(p => p.toLowerCase());
+      if (parts.length < 2) return false;
+      const officerFirst = parts[0];
+      const officerSurname = parts[parts.length - 1];
+      return officerFirst === firstName && officerSurname === surname;
+    };
 
-    // Remove duplicates
-    const uniqueQueries = [...new Set(searchQueries.map(q => q.toLowerCase()))];
-
+    // Search by surname to find all variations (Nicholas Cooper, Nicholas Matthew Cooper, etc.)
     const allResults = [];
     const seenOfficerIds = new Set();
 
-    for (const query of uniqueQueries) {
+    // Fetch multiple pages to ensure we get all matches
+    let startIndex = 0;
+    const itemsPerPage = 100;
+    const maxPages = 5; // Limit to avoid too many API calls
+
+    for (let page = 0; page < maxPages; page++) {
       try {
         const data = await fetchFromCompaniesHouse(
-          `/search/officers?q=${encodeURIComponent(query)}&items_per_page=100`
+          `/search/officers?q=${encodeURIComponent(surname)}&items_per_page=${itemsPerPage}&start_index=${startIndex}`
         );
 
-        if (data.items) {
-          for (const officer of data.items) {
-            // Extract officer ID from links
-            const officerId = officer.links?.self?.replace('/officers/', '').replace('/appointments', '') || null;
+        if (!data.items || data.items.length === 0) break;
 
-            // Skip if we've already seen this officer
-            if (officerId && seenOfficerIds.has(officerId)) continue;
-            if (officerId) seenOfficerIds.add(officerId);
+        for (const officer of data.items) {
+          // Extract officer ID from links
+          const officerId = officer.links?.self?.replace('/officers/', '').replace('/appointments', '') || null;
 
-            // Filter by DOB if provided
-            if (dobMonth && dobYear) {
-              const dob = officer.date_of_birth;
-              if (!dob || dob.month !== parseInt(dobMonth) || dob.year !== parseInt(dobYear)) {
-                continue;
-              }
+          // Skip if we've already seen this officer
+          if (officerId && seenOfficerIds.has(officerId)) continue;
+          if (officerId) seenOfficerIds.add(officerId);
+
+          // Check if first name and surname match (ignore middle names)
+          if (!nameMatches(officer.title)) continue;
+
+          // Filter by DOB if provided
+          if (dobMonth && dobYear) {
+            const dob = officer.date_of_birth;
+            if (!dob || dob.month !== parseInt(dobMonth) || dob.year !== parseInt(dobYear)) {
+              continue;
             }
-
-            allResults.push({
-              ...officer,
-              officer_id: officerId
-            });
           }
+
+          allResults.push({
+            ...officer,
+            officer_id: officerId
+          });
         }
+
+        // Check if we've reached the end
+        startIndex += itemsPerPage;
+        if (startIndex >= (data.total_results || 0)) break;
       } catch (e) {
-        console.log(`Search for "${query}" failed: ${e.message}`);
+        console.log(`Search page ${page} failed: ${e.message}`);
+        break;
       }
     }
 
     res.json({
       items: allResults,
       total_results: allResults.length,
-      search_queries_used: uniqueQueries
+      search_name: { firstName, surname }
     });
   } catch (error) {
     console.error('Find related officers error:', error.message);
