@@ -836,13 +836,12 @@ function PSCExtractor({ onBack }) {
 // Cross-directorship Search Components
 // ============================================
 function CrossDirectorshipSearch({ onBack }) {
-  const [step, setStep] = useState(1) // 1: Search, 2: Select initial, 3: Find related, 4: Confirm matches, 5: Results
+  const [step, setStep] = useState(1) // 1: Search, 2: Select records, 3: View appointments
   const [searchQuery, setSearchQuery] = useState('')
+  const [dobMonth, setDobMonth] = useState('')
+  const [dobYear, setDobYear] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searchLoading, setSearchLoading] = useState(false)
-  const [selectedOfficer, setSelectedOfficer] = useState(null)
-  const [relatedOfficers, setRelatedOfficers] = useState(null)
-  const [relatedLoading, setRelatedLoading] = useState(false)
   const [selectedOfficerIds, setSelectedOfficerIds] = useState(new Set())
   const [appointments, setAppointments] = useState(null)
   const [appointmentsLoading, setAppointmentsLoading] = useState(false)
@@ -850,54 +849,34 @@ function CrossDirectorshipSearch({ onBack }) {
 
   const handleSearch = async (e) => {
     e.preventDefault()
-    if (!searchQuery.trim()) return
+    if (!searchQuery.trim() || !dobMonth || !dobYear) return
     setSearchLoading(true)
     setError(null)
     setSearchResults(null)
+    setSelectedOfficerIds(new Set())
     try {
-      const data = await api.searchOfficers(searchQuery)
-      setSearchResults(data.items || [])
-      setStep(2)
+      // Use find-related endpoint with DOB filtering from the start
+      const data = await api.findRelatedOfficers(searchQuery, dobMonth, dobYear)
+      if (data.items && data.items.length > 0) {
+        setSearchResults(data.items)
+        // Auto-select all results initially
+        setSelectedOfficerIds(new Set(data.items.map(o => o.officer_id).filter(Boolean)))
+        setStep(2)
+      } else {
+        setError(`No directors found matching "${searchQuery}" with DOB ${monthNames[parseInt(dobMonth) - 1]} ${dobYear}. Check the spelling and date of birth.`)
+      }
     } catch (err) {
-      setError('Officer search failed. Please try again.')
+      setError('Search failed. Please try again.')
       console.error(err)
     } finally {
       setSearchLoading(false)
     }
   }
 
-  const handleSelectInitialOfficer = async (officer) => {
-    setSelectedOfficer(officer)
-    setSelectedOfficerIds(new Set([officer.officer_id]))
-    setRelatedLoading(true)
-    setStep(3)
-
-    try {
-      const dob = officer.date_of_birth
-      const data = await api.findRelatedOfficers(
-        officer.title,
-        dob?.month,
-        dob?.year
-      )
-      // Filter out the already selected officer
-      const filtered = data.items.filter(o => o.officer_id !== officer.officer_id)
-      setRelatedOfficers(filtered)
-      setStep(4)
-    } catch (err) {
-      setError('Failed to find related officers.')
-      console.error(err)
-    } finally {
-      setRelatedLoading(false)
-    }
-  }
-
   const toggleOfficerSelection = (officerId) => {
     const newSet = new Set(selectedOfficerIds)
     if (newSet.has(officerId)) {
-      // Don't allow deselecting the initial officer
-      if (officerId !== selectedOfficer?.officer_id) {
-        newSet.delete(officerId)
-      }
+      newSet.delete(officerId)
     } else {
       newSet.add(officerId)
     }
@@ -905,9 +884,13 @@ function CrossDirectorshipSearch({ onBack }) {
   }
 
   const handleFetchAppointments = async () => {
+    if (selectedOfficerIds.size === 0) {
+      setError('Please select at least one record.')
+      return
+    }
     setAppointmentsLoading(true)
     setError(null)
-    setStep(5)
+    setStep(3)
 
     try {
       const allAppointments = []
@@ -949,18 +932,19 @@ function CrossDirectorshipSearch({ onBack }) {
   const handleReset = () => {
     setStep(1)
     setSearchQuery('')
+    setDobMonth('')
+    setDobYear('')
     setSearchResults(null)
-    setSelectedOfficer(null)
-    setRelatedOfficers(null)
     setSelectedOfficerIds(new Set())
     setAppointments(null)
     setError(null)
   }
 
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
   const formatDOB = (dob) => {
     if (!dob) return 'N/A'
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    return `${months[dob.month - 1]} ${dob.year}`
+    return `${monthNames[dob.month - 1]} ${dob.year}`
   }
 
   const generateAppointmentsCSV = () => {
@@ -978,8 +962,15 @@ function CrossDirectorshipSearch({ onBack }) {
       ].join(','))
     }
     const csv = lines.join('\n')
-    const filename = `${selectedOfficer?.title || 'officer'}_appointments_${new Date().toISOString().split('T')[0]}.csv`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+    const filename = `${searchQuery || 'officer'}_appointments_${new Date().toISOString().split('T')[0]}.csv`.replace(/[^a-zA-Z0-9_.-]/g, '_')
     downloadCSV(csv, filename)
+  }
+
+  // Generate year options (current year back to 1920)
+  const currentYear = new Date().getFullYear()
+  const yearOptions = []
+  for (let y = currentYear; y >= 1920; y--) {
+    yearOptions.push(y)
   }
 
   return (
@@ -998,151 +989,104 @@ function CrossDirectorshipSearch({ onBack }) {
       {/* Progress indicator */}
       <div className="mb-8">
         <div className="flex items-center justify-center gap-2">
-          {[1, 2, 3, 4, 5].map((s) => (
+          {[1, 2, 3].map((s) => (
             <div key={s} className="flex items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= s ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-500'}`}>{s}</div>
-              {s < 5 && <div className={`w-12 h-1 ${step > s ? 'bg-purple-600' : 'bg-gray-200'}`}></div>}
+              {s < 3 && <div className={`w-16 h-1 ${step > s ? 'bg-purple-600' : 'bg-gray-200'}`}></div>}
             </div>
           ))}
         </div>
         <div className="flex justify-center mt-2 text-sm text-gray-600">
-          {step === 1 && 'Search for a director'}
-          {step === 2 && 'Select the person'}
-          {step === 3 && 'Finding related records...'}
-          {step === 4 && 'Confirm matches'}
-          {step === 5 && 'View appointments'}
+          {step === 1 && 'Search by name and date of birth'}
+          {step === 2 && 'Select matching records'}
+          {step === 3 && 'View appointments'}
         </div>
       </div>
 
       {error && (<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
 
-      {/* Step 1: Search */}
+      {/* Step 1: Search with DOB */}
       {step === 1 && (
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-xl shadow-lg p-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Director</h2>
-            <p className="text-gray-600 mb-6">Enter the name of the person you want to search for. You'll be able to identify them by their date of birth in the next step.</p>
+            <p className="text-gray-600 mb-6">Enter the director's name and date of birth. The DOB helps filter results since many people share the same name.</p>
             <form onSubmit={handleSearch} className="space-y-4">
               <div>
                 <label htmlFor="officer-search" className="block text-sm font-medium text-gray-700 mb-1">Director name</label>
-                <input id="officer-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g., John Smith" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" autoFocus />
+                <input id="officer-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g., Nicholas Cooper" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" autoFocus />
               </div>
-              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="dob-month" className="block text-sm font-medium text-gray-700 mb-1">Month of birth</label>
+                  <select id="dob-month" value={dobMonth} onChange={(e) => setDobMonth(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors">
+                    <option value="">Select month</option>
+                    {monthNames.map((month, idx) => (
+                      <option key={idx} value={idx + 1}>{month}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="dob-year" className="block text-sm font-medium text-gray-700 mb-1">Year of birth</label>
+                  <select id="dob-year" value={dobYear} onChange={(e) => setDobYear(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors">
+                    <option value="">Select year</option>
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <button type="submit" disabled={searchLoading || !searchQuery.trim() || !dobMonth || !dobYear} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
             </form>
+            <p className="mt-4 text-xs text-gray-500 text-center">Companies House only stores month and year of birth for privacy.</p>
           </div>
         </div>
       )}
 
-      {/* Step 2: Select initial officer */}
+      {/* Step 2: Select records */}
       {step === 2 && searchResults && (
         <div className="max-w-4xl mx-auto">
           <div className="bg-white rounded-xl shadow-lg p-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Select the Person</h2>
-            <p className="text-gray-600 mb-6">Found {searchResults.length} results. Select the person you're looking for - use the date of birth to identify the correct one.</p>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Select Matching Records</h2>
+            <p className="text-gray-600 mb-6">
+              Found {searchResults.length} record{searchResults.length !== 1 ? 's' : ''} for directors born in {monthNames[parseInt(dobMonth) - 1]} {dobYear}.
+              All records are selected by default. Uncheck any that don't belong to the person you're searching for.
+            </p>
 
-            {searchResults.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">No officers found matching "{searchQuery}"</p>
-            ) : (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                {searchResults.map((officer, idx) => {
-                  const officerId = officer.links?.self?.replace('/officers/', '').replace('/appointments', '')
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => handleSelectInitialOfficer({ ...officer, officer_id: officerId })}
-                      className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-purple-400 hover:bg-purple-50 transition-all"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-semibold text-gray-900">{officer.title}</p>
-                          <p className="text-sm text-gray-600">DOB: {formatDOB(officer.date_of_birth)}</p>
-                          {officer.address_snippet && <p className="text-sm text-gray-500 mt-1">{officer.address_snippet}</p>}
-                        </div>
-                        <span className="text-sm text-gray-400">{officer.appointments} appointment{officer.appointments !== 1 ? 's' : ''}</span>
+            <div className="space-y-3 max-h-[400px] overflow-y-auto mb-6">
+              {searchResults.map((officer, idx) => {
+                const isSelected = selectedOfficerIds.has(officer.officer_id)
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => toggleOfficerSelection(officer.officer_id)}
+                    className={`w-full text-left p-4 rounded-lg border-2 transition-all ${isSelected ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:border-gray-300 bg-gray-50'}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${isSelected ? 'border-purple-500 bg-purple-500' : 'border-gray-300 bg-white'}`}>
+                        {isSelected && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
                       </div>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Loading related */}
-      {step === 3 && relatedLoading && (
-        <div className="max-w-2xl mx-auto">
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mb-4"></div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Finding Related Records</h2>
-            <p className="text-gray-600">Searching for other Companies House records that may belong to {selectedOfficer?.title}...</p>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Confirm matches */}
-      {step === 4 && (
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-white rounded-xl shadow-lg p-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Confirm Matches</h2>
-            <p className="text-gray-600 mb-6">We found {relatedOfficers?.length || 0} other records with the same date of birth. Select any that belong to the same person.</p>
-
-            {/* Selected officer */}
-            <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-2">Selected Person:</h3>
-              <div className="p-4 rounded-lg bg-purple-100 border-2 border-purple-400">
-                <p className="font-semibold text-gray-900">{selectedOfficer?.title}</p>
-                <p className="text-sm text-gray-600">DOB: {formatDOB(selectedOfficer?.date_of_birth)}</p>
-                {selectedOfficer?.address_snippet && <p className="text-sm text-gray-500">{selectedOfficer.address_snippet}</p>}
-              </div>
+                      <div className="flex-grow">
+                        <p className="font-semibold text-gray-900">{officer.title}</p>
+                        <p className="text-sm text-gray-600">DOB: {formatDOB(officer.date_of_birth)}</p>
+                        {officer.address_snippet && <p className="text-sm text-gray-500">{officer.address_snippet}</p>}
+                      </div>
+                      <span className="text-sm text-gray-400">{officer.appointments} appt{officer.appointments !== 1 ? 's' : ''}</span>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
 
-            {/* Related officers */}
-            {relatedOfficers && relatedOfficers.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-sm font-medium text-gray-500 mb-2">Possible Matches (same DOB):</h3>
-                <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                  {relatedOfficers.map((officer, idx) => {
-                    const isSelected = selectedOfficerIds.has(officer.officer_id)
-                    return (
-                      <button
-                        key={idx}
-                        onClick={() => toggleOfficerSelection(officer.officer_id)}
-                        className={`w-full text-left p-4 rounded-lg border-2 transition-all ${isSelected ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:border-gray-300'}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${isSelected ? 'border-purple-500 bg-purple-500' : 'border-gray-300'}`}>
-                            {isSelected && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
-                          </div>
-                          <div className="flex-grow">
-                            <p className="font-semibold text-gray-900">{officer.title}</p>
-                            <p className="text-sm text-gray-600">DOB: {formatDOB(officer.date_of_birth)}</p>
-                            {officer.address_snippet && <p className="text-sm text-gray-500">{officer.address_snippet}</p>}
-                          </div>
-                          <span className="text-sm text-gray-400">{officer.appointments} appt{officer.appointments !== 1 ? 's' : ''}</span>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {relatedOfficers && relatedOfficers.length === 0 && (
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg text-gray-600 text-center">
-                No other records found with matching date of birth.
-              </div>
-            )}
-
-            <button onClick={handleFetchAppointments} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition-colors">
+            <button onClick={handleFetchAppointments} disabled={selectedOfficerIds.size === 0} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               View All Appointments ({selectedOfficerIds.size} record{selectedOfficerIds.size !== 1 ? 's' : ''} selected)
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 5: Results */}
-      {step === 5 && (
+      {/* Step 3: Results */}
+      {step === 3 && (
         <div className="max-w-6xl mx-auto">
           {appointmentsLoading ? (
             <div className="bg-white rounded-xl shadow-lg p-8 text-center">
@@ -1153,7 +1097,7 @@ function CrossDirectorshipSearch({ onBack }) {
             <div className="bg-white rounded-xl shadow-lg p-8">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">Appointments for {selectedOfficer?.title}</h2>
+                  <h2 className="text-xl font-semibold text-gray-900">Appointments for {searchQuery}</h2>
                   <p className="text-gray-600">{appointments?.length || 0} positions found across {selectedOfficerIds.size} record{selectedOfficerIds.size !== 1 ? 's' : ''}</p>
                 </div>
                 <button onClick={generateAppointmentsCSV} disabled={!appointments || appointments.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
