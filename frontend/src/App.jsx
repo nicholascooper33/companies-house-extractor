@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
-// API helper functions
+// ============================================
+// API Helper Functions
+// ============================================
 const api = {
+  // Company search APIs
   search: async (query) => {
     const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
     if (!res.ok) throw new Error('Search failed')
@@ -26,10 +29,31 @@ const api = {
     const res = await fetch(`/api/company/${companyNumber}/ownership-chain`)
     if (!res.ok) throw new Error('Failed to fetch ownership chain')
     return res.json()
+  },
+  // Officer search APIs
+  searchOfficers: async (query) => {
+    const res = await fetch(`/api/officers/search?q=${encodeURIComponent(query)}`)
+    if (!res.ok) throw new Error('Officer search failed')
+    return res.json()
+  },
+  getOfficerAppointments: async (officerId) => {
+    const res = await fetch(`/api/officers/${encodeURIComponent(officerId)}/appointments`)
+    if (!res.ok) throw new Error('Failed to fetch appointments')
+    return res.json()
+  },
+  findRelatedOfficers: async (name, dobMonth, dobYear) => {
+    const params = new URLSearchParams({ name })
+    if (dobMonth) params.append('dobMonth', dobMonth)
+    if (dobYear) params.append('dobYear', dobYear)
+    const res = await fetch(`/api/officers/find-related?${params}`)
+    if (!res.ok) throw new Error('Failed to find related officers')
+    return res.json()
   }
 }
 
-// Format address helper
+// ============================================
+// Utility Functions
+// ============================================
 function formatAddress(address) {
   if (!address) return 'N/A'
   const parts = [
@@ -44,7 +68,6 @@ function formatAddress(address) {
   return parts.join(', ') || 'N/A'
 }
 
-// Format natures of control
 function formatNatureOfControl(nature) {
   return nature
     .replace(/-/g, ' ')
@@ -55,7 +78,6 @@ function formatNatureOfControl(nature) {
     .replace(/percent/i, '%')
 }
 
-// CSV Helper functions
 function escapeCSV(value) {
   if (value === null || value === undefined) return ''
   const str = String(value)
@@ -67,17 +89,14 @@ function escapeCSV(value) {
 
 function flattenOwnershipChain(node, path = [], results = []) {
   if (!node || node.circular_reference) return results
-
   const currentPath = [...path, node.company_name || node.company_number]
-
   if (node.pscs) {
     for (const psc of node.pscs) {
       if (psc.kind?.includes('corporate-entity') && psc.parent_chain) {
         flattenOwnershipChain(psc.parent_chain, currentPath, results)
       } else {
-        // This is an ultimate beneficial owner (individual or non-UK corporate)
         results.push({
-          chain: [...currentPath, psc.name], // Keep as array for separate cells
+          chain: [...currentPath, psc.name],
           ubo_name: psc.name,
           ubo_type: psc.kind?.replace(/-/g, ' ').replace('person with significant control', 'PSC') || 'Unknown',
           natures_of_control: (psc.natures_of_control || []).join('; ')
@@ -85,14 +104,11 @@ function flattenOwnershipChain(node, path = [], results = []) {
       }
     }
   }
-
   return results
 }
 
 function generateCSV(companyData, officers, pscs, ownershipChain) {
   const lines = []
-
-  // Company Information Section
   lines.push('COMPANY INFORMATION')
   lines.push('Field,Value')
   lines.push(`Company Name,${escapeCSV(companyData?.company_name)}`)
@@ -109,7 +125,6 @@ function generateCSV(companyData, officers, pscs, ownershipChain) {
   }
   lines.push('')
 
-  // Officers Section
   lines.push('OFFICERS')
   lines.push('Name,Role,Appointed,Nationality,Occupation,Address')
   const activeOfficers = (officers || []).filter(o => !o.resigned_on)
@@ -125,7 +140,6 @@ function generateCSV(companyData, officers, pscs, ownershipChain) {
   }
   lines.push('')
 
-  // PSC Section
   lines.push('PERSONS WITH SIGNIFICANT CONTROL')
   lines.push('Name,Type,Nature of Control,Nationality,Country,Registration Number,Place Registered,Address')
   const activePSCs = (pscs || []).filter(p => !p.ceased_on)
@@ -143,32 +157,20 @@ function generateCSV(companyData, officers, pscs, ownershipChain) {
   }
   lines.push('')
 
-  // Ownership Chain Section (if available)
   if (ownershipChain) {
     lines.push('ULTIMATE BENEFICIAL OWNERSHIP CHAIN')
     const flatChain = flattenOwnershipChain(ownershipChain)
-
-    // Find the maximum chain length to create dynamic headers
     const maxChainLength = Math.max(...flatChain.map(row => row.chain.length), 0)
-
-    // Create headers: Level 1 (Target), Level 2, Level 3, ..., UBO Type, Nature of Control
     const headers = []
     for (let i = 1; i <= maxChainLength; i++) {
-      if (i === 1) {
-        headers.push('Level 1 (Target Company)')
-      } else if (i === maxChainLength) {
-        headers.push(`Level ${i} (UBO)`)
-      } else {
-        headers.push(`Level ${i}`)
-      }
+      if (i === 1) headers.push('Level 1 (Target Company)')
+      else if (i === maxChainLength) headers.push(`Level ${i} (UBO)`)
+      else headers.push(`Level ${i}`)
     }
     headers.push('UBO Type', 'Nature of Control')
     lines.push(headers.join(','))
-
-    // Output each chain with entities in separate cells
     for (const row of flatChain) {
       const cells = []
-      // Add each entity in the chain to its own cell
       for (let i = 0; i < maxChainLength; i++) {
         cells.push(escapeCSV(row.chain[i] || ''))
       }
@@ -177,7 +179,6 @@ function generateCSV(companyData, officers, pscs, ownershipChain) {
       lines.push(cells.join(','))
     }
   }
-
   return lines.join('\n')
 }
 
@@ -190,7 +191,7 @@ function downloadCSV(content, filename) {
   URL.revokeObjectURL(link.href)
 }
 
-// Structure Chart SVG Generator
+// Structure Chart SVG Generator (keeping the full implementation)
 function generateStructureChartSVG(ownershipChain, companyName) {
   const BOX_WIDTH = 250
   const MIN_BOX_HEIGHT = 60
@@ -202,7 +203,6 @@ function generateStructureChartSVG(ownershipChain, companyName) {
   const LINE_HEIGHT = 14
   const CHARS_PER_LINE = 32
 
-  // Colors
   const COLORS = {
     target: { fill: '#DBEAFE', stroke: '#3B82F6', text: '#1E40AF' },
     corporate: { fill: '#F3E8FF', stroke: '#A855F7', text: '#7E22CE' },
@@ -210,19 +210,16 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     line: '#94A3B8'
   }
 
-  // Helper to wrap text into multiple lines
   function wrapText(text, maxCharsPerLine) {
     if (!text) return ['']
     const words = text.split(' ')
     const lines = []
     let currentLine = ''
-
     for (const word of words) {
       if (currentLine.length + word.length + 1 <= maxCharsPerLine) {
         currentLine += (currentLine ? ' ' : '') + word
       } else {
         if (currentLine) lines.push(currentLine)
-        // Handle very long words
         if (word.length > maxCharsPerLine) {
           let remaining = word
           while (remaining.length > maxCharsPerLine) {
@@ -239,10 +236,9 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     return lines.length > 0 ? lines : ['']
   }
 
-  // Helper to format natures of control
   function formatNatures(natures) {
     if (!natures || natures.length === 0) return []
-    const formatted = natures.map(n =>
+    return natures.map(n =>
       n.replace(/-/g, ' ')
         .replace(/ownership of shares/i, 'Owns')
         .replace(/voting rights/i, 'Voting')
@@ -250,10 +246,8 @@ function generateStructureChartSVG(ownershipChain, companyName) {
         .replace(/significant influence or control/i, 'Significant control')
         .replace(/percent/i, '%')
     )
-    return formatted
   }
 
-  // Calculate box height based on content
   function calculateBoxHeight(nameLines, hasNumber, naturesCount) {
     const nameHeight = nameLines.length * LINE_HEIGHT
     const numberHeight = hasNumber ? LINE_HEIGHT : 0
@@ -261,29 +255,16 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     return Math.max(MIN_BOX_HEIGHT, nameHeight + numberHeight + naturesHeight + 20)
   }
 
-  // First pass: collect all nodes and calculate their heights
   const nodeData = []
 
   function collectNodes(node, depth, isCompany = true) {
     if (!node) return
-
     const name = node.company_name || node.name || node.company_number || 'Unknown'
     const number = node.company_number || node.identification?.registration_number || ''
     const natures = node.natures_of_control || []
     const nameLines = wrapText(name, CHARS_PER_LINE)
     const height = calculateBoxHeight(nameLines, !!number, natures.length)
-
-    nodeData.push({
-      depth,
-      name,
-      nameLines,
-      number,
-      natures: formatNatures(natures),
-      type: depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual'),
-      height,
-      isCompany
-    })
-
+    nodeData.push({ depth, name, nameLines, number, natures: formatNatures(natures), type: depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual'), height, isCompany })
     if (node.pscs) {
       for (const psc of node.pscs) {
         if (psc.parent_chain) {
@@ -295,17 +276,7 @@ function generateStructureChartSVG(ownershipChain, companyName) {
           const pscNameLines = wrapText(pscName, CHARS_PER_LINE)
           const pscHeight = calculateBoxHeight(pscNameLines, !!pscNumber, pscNatures.length)
           const isCorporate = psc.kind?.includes('corporate-entity')
-
-          nodeData.push({
-            depth: depth + 1,
-            name: pscName,
-            nameLines: pscNameLines,
-            number: pscNumber,
-            natures: formatNatures(pscNatures),
-            type: isCorporate ? 'corporate' : 'individual',
-            height: pscHeight,
-            isCompany: false
-          })
+          nodeData.push({ depth: depth + 1, name: pscName, nameLines: pscNameLines, number: pscNumber, natures: formatNatures(pscNatures), type: isCorporate ? 'corporate' : 'individual', height: pscHeight, isCompany: false })
         }
       }
     }
@@ -313,7 +284,6 @@ function generateStructureChartSVG(ownershipChain, companyName) {
 
   collectNodes(ownershipChain, 0, true)
 
-  // Calculate max height per depth level
   const maxHeightPerDepth = {}
   for (const node of nodeData) {
     if (!maxHeightPerDepth[node.depth] || node.height > maxHeightPerDepth[node.depth]) {
@@ -321,70 +291,44 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     }
   }
 
-  // Calculate Y positions for each depth level
   const yPositionPerDepth = {}
-  let currentY = BOX_PADDING + 40 // Account for title
+  let currentY = BOX_PADDING + 40
   const depths = Object.keys(maxHeightPerDepth).map(Number).sort((a, b) => a - b)
   for (const depth of depths) {
     yPositionPerDepth[depth] = currentY
     currentY += maxHeightPerDepth[depth] + VERTICAL_GAP
   }
 
-  // Collect all nodes with positions
   const nodes = []
   const connections = []
 
-  // Calculate tree structure - get width of subtree for each node
   function getSubtreeWidth(node) {
     if (!node || !node.pscs || node.pscs.length === 0) return 1
     let width = 0
     for (const psc of node.pscs) {
-      if (psc.parent_chain) {
-        width += getSubtreeWidth(psc.parent_chain)
-      } else {
-        width += 1
-      }
+      if (psc.parent_chain) width += getSubtreeWidth(psc.parent_chain)
+      else width += 1
     }
     return Math.max(width, 1)
   }
 
-  // Layout the tree with proper heights
   function layoutNode(node, depth, xOffset, parentId = null, parentX = null, parentY = null, parentHeight = 0, isCompany = true) {
     if (!node) return xOffset
-
     const subtreeWidth = getSubtreeWidth(node)
     const nodeWidth = subtreeWidth * (BOX_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP
     const x = xOffset + nodeWidth / 2
     const y = yPositionPerDepth[depth]
-
     const name = node.company_name || node.name || node.company_number || 'Unknown'
     const number = node.company_number || node.identification?.registration_number || ''
     const natures = node.natures_of_control || []
     const nameLines = wrapText(name, CHARS_PER_LINE)
     const height = maxHeightPerDepth[depth]
-
     const nodeId = nodes.length
     const nodeType = depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual')
-
-    nodes.push({
-      id: nodeId,
-      x,
-      y,
-      nameLines,
-      number,
-      type: nodeType,
-      natures: formatNatures(natures),
-      height
-    })
-
+    nodes.push({ id: nodeId, x, y, nameLines, number, type: nodeType, natures: formatNatures(natures), height })
     if (parentId !== null) {
-      connections.push({
-        from: { x: parentX, y: parentY + parentHeight },
-        to: { x, y }
-      })
+      connections.push({ from: { x: parentX, y: parentY + parentHeight }, to: { x, y } })
     }
-
-    // Process PSCs
     if (node.pscs && node.pscs.length > 0) {
       let childXOffset = xOffset
       for (const psc of node.pscs) {
@@ -396,57 +340,31 @@ function generateStructureChartSVG(ownershipChain, companyName) {
           const childX = childXOffset + childNodeWidth / 2
           const childY = yPositionPerDepth[depth + 1]
           const childHeight = maxHeightPerDepth[depth + 1]
-
           const childId = nodes.length
           const isCorporate = psc.kind?.includes('corporate-entity')
           const pscName = psc.name || 'Unknown'
           const pscNumber = psc.identification?.registration_number || ''
           const pscNatures = psc.natures_of_control || []
-
-          nodes.push({
-            id: childId,
-            x: childX,
-            y: childY,
-            nameLines: wrapText(pscName, CHARS_PER_LINE),
-            number: pscNumber,
-            type: isCorporate ? 'corporate' : 'individual',
-            natures: formatNatures(pscNatures),
-            height: childHeight
-          })
-
-          connections.push({
-            from: { x, y: y + height },
-            to: { x: childX, y: childY }
-          })
-
+          nodes.push({ id: childId, x: childX, y: childY, nameLines: wrapText(pscName, CHARS_PER_LINE), number: pscNumber, type: isCorporate ? 'corporate' : 'individual', natures: formatNatures(pscNatures), height: childHeight })
+          connections.push({ from: { x, y: y + height }, to: { x: childX, y: childY } })
           childXOffset += BOX_WIDTH + HORIZONTAL_GAP
         }
       }
     }
-
     return xOffset + nodeWidth + HORIZONTAL_GAP
   }
 
-  // Start layout from root
   layoutNode(ownershipChain, 0, BOX_PADDING)
 
-  // Calculate SVG dimensions
   const maxX = Math.max(...nodes.map(n => n.x)) + BOX_WIDTH / 2 + BOX_PADDING
   const maxY = Math.max(...nodes.map(n => n.y + n.height)) + BOX_PADDING
   const svgWidth = Math.max(maxX, 400)
-  const svgHeight = maxY + 60 // Extra space for legend
+  const svgHeight = maxY + 60
 
-  // Escape XML special characters
   function escapeXML(text) {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;')
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
   }
 
-  // Build SVG
   let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}">
   <defs>
@@ -458,49 +376,34 @@ function generateStructureChartSVG(ownershipChain, companyName) {
       .legend-text { font-size: ${SMALL_FONT_SIZE}px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     </style>
   </defs>
-
-  <!-- Background -->
   <rect width="100%" height="100%" fill="white"/>
-
-  <!-- Title -->
   <text x="${svgWidth / 2}" y="25" text-anchor="middle" class="box-text" style="font-size: 14px; font-weight: bold; fill: #1F2937;">
     Ownership Structure: ${escapeXML(companyName || 'Company')}
   </text>
 `
 
-  // Draw connections first (so they appear behind boxes)
   svg += '\n  <!-- Connections -->\n'
   for (const conn of connections) {
     const midY = (conn.from.y + conn.to.y) / 2
     svg += `  <path d="M ${conn.from.x} ${conn.from.y} L ${conn.from.x} ${midY} L ${conn.to.x} ${midY} L ${conn.to.x} ${conn.to.y}" fill="none" stroke="${COLORS.line}" stroke-width="2"/>\n`
   }
 
-  // Draw nodes
   svg += '\n  <!-- Nodes -->\n'
   for (const node of nodes) {
     const colors = COLORS[node.type]
     const boxX = node.x - BOX_WIDTH / 2
-
-    // Calculate text positions
     let textY = 18
     const nameTextElements = node.nameLines.map((line, i) => {
       const y = textY + (i * LINE_HEIGHT)
       return `    <text x="${BOX_WIDTH / 2}" y="${y}" text-anchor="middle" class="box-text company-name" fill="${colors.text}">${escapeXML(line)}</text>`
     }).join('\n')
-
     textY += node.nameLines.length * LINE_HEIGHT + 4
-
-    const numberElement = node.number
-      ? `    <text x="${BOX_WIDTH / 2}" y="${textY}" text-anchor="middle" class="company-number" fill="${colors.text}">${escapeXML(node.number)}</text>`
-      : ''
-
+    const numberElement = node.number ? `    <text x="${BOX_WIDTH / 2}" y="${textY}" text-anchor="middle" class="company-number" fill="${colors.text}">${escapeXML(node.number)}</text>` : ''
     if (node.number) textY += LINE_HEIGHT
-
     const naturesElements = node.natures.slice(0, 2).map((nature, i) => {
       const y = textY + (i * (LINE_HEIGHT - 2))
       return `    <text x="${BOX_WIDTH / 2}" y="${y}" text-anchor="middle" class="control-info">${escapeXML(nature)}</text>`
     }).join('\n')
-
     svg += `  <g transform="translate(${boxX}, ${node.y})">
     <rect width="${BOX_WIDTH}" height="${node.height}" rx="8" fill="${colors.fill}" stroke="${colors.stroke}" stroke-width="2"/>
 ${nameTextElements}
@@ -509,22 +412,18 @@ ${naturesElements}
   </g>\n`
   }
 
-  // Add legend
   const legendY = maxY + 20
   svg += `
   <!-- Legend -->
   <g transform="translate(${BOX_PADDING}, ${legendY})">
     <rect width="16" height="16" rx="3" fill="${COLORS.target.fill}" stroke="${COLORS.target.stroke}" stroke-width="1.5"/>
     <text x="22" y="12" class="legend-text" fill="#374151">Target Company</text>
-
     <rect x="140" width="16" height="16" rx="3" fill="${COLORS.corporate.fill}" stroke="${COLORS.corporate.stroke}" stroke-width="1.5"/>
     <text x="162" y="12" class="legend-text" fill="#374151">Corporate Entity</text>
-
     <rect x="290" width="16" height="16" rx="3" fill="${COLORS.individual.fill}" stroke="${COLORS.individual.stroke}" stroke-width="1.5"/>
     <text x="312" y="12" class="legend-text" fill="#374151">Individual / UBO</text>
   </g>
 `
-
   svg += '</svg>'
   return svg
 }
@@ -538,7 +437,82 @@ function downloadSVG(content, filename) {
   URL.revokeObjectURL(link.href)
 }
 
-// Search Results Component
+// ============================================
+// Module Selection Component
+// ============================================
+function ModuleSelector({ onSelectModule }) {
+  const modules = [
+    {
+      id: 'psc-extractor',
+      name: 'PSC Extractor',
+      description: 'Search for companies and extract ownership information, directors, and persons with significant control. Trace corporate ownership chains to identify ultimate beneficial owners.',
+      icon: (
+        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      ),
+      color: 'blue'
+    },
+    {
+      id: 'cross-directorship',
+      name: 'Cross-directorship Search',
+      description: 'Search for a director by name and find all companies where they hold positions. Stitch together multiple Companies House records for the same person.',
+      icon: (
+        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      ),
+      color: 'purple'
+    }
+  ]
+
+  const colorClasses = {
+    blue: {
+      bg: 'bg-blue-50 hover:bg-blue-100',
+      border: 'border-blue-200 hover:border-blue-400',
+      icon: 'text-blue-600',
+      title: 'text-blue-900'
+    },
+    purple: {
+      bg: 'bg-purple-50 hover:bg-purple-100',
+      border: 'border-purple-200 hover:border-purple-400',
+      icon: 'text-purple-600',
+      title: 'text-purple-900'
+    }
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="text-center mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Select a Module</h2>
+        <p className="text-gray-600">Choose the tool you need to extract company information</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {modules.map((module) => {
+          const colors = colorClasses[module.color]
+          return (
+            <button
+              key={module.id}
+              onClick={() => onSelectModule(module.id)}
+              className={`${colors.bg} ${colors.border} border-2 rounded-xl p-6 text-left transition-all duration-200 hover:shadow-lg hover:scale-[1.02]`}
+            >
+              <div className={`${colors.icon} mb-4`}>
+                {module.icon}
+              </div>
+              <h3 className={`text-xl font-bold ${colors.title} mb-2`}>{module.name}</h3>
+              <p className="text-gray-600 text-sm">{module.description}</p>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ============================================
+// PSC Extractor Components (existing functionality)
+// ============================================
 function SearchResults({ results, onSelect, loading }) {
   if (loading) {
     return (
@@ -548,11 +522,7 @@ function SearchResults({ results, onSelect, loading }) {
       </div>
     )
   }
-
-  if (!results || results.length === 0) {
-    return null
-  }
-
+  if (!results || results.length === 0) return null
   return (
     <div className="mt-4 bg-white rounded-lg shadow-md overflow-hidden">
       <div className="px-4 py-3 bg-gray-50 border-b">
@@ -560,22 +530,14 @@ function SearchResults({ results, onSelect, loading }) {
       </div>
       <ul className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
         {results.map((company) => (
-          <li
-            key={company.company_number}
-            onClick={() => onSelect(company.company_number)}
-            className="px-4 py-3 hover:bg-blue-50 cursor-pointer transition-colors"
-          >
+          <li key={company.company_number} onClick={() => onSelect(company.company_number)} className="px-4 py-3 hover:bg-blue-50 cursor-pointer transition-colors">
             <div className="flex justify-between items-start">
               <div>
                 <p className="font-medium text-gray-900">{company.title}</p>
                 <p className="text-sm text-gray-500">{company.company_number}</p>
                 <p className="text-sm text-gray-500">{formatAddress(company.address)}</p>
               </div>
-              <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                company.company_status === 'active'
-                  ? 'bg-green-100 text-green-800'
-                  : 'bg-red-100 text-red-800'
-              }`}>
+              <span className={`px-2 py-1 text-xs font-medium rounded-full ${company.company_status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                 {company.company_status}
               </span>
             </div>
@@ -586,10 +548,8 @@ function SearchResults({ results, onSelect, loading }) {
   )
 }
 
-// Company Profile Component
 function CompanyProfile({ company }) {
   if (!company) return null
-
   return (
     <div className="bg-white rounded-lg shadow-md p-6 mb-6">
       <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -598,101 +558,42 @@ function CompanyProfile({ company }) {
         </svg>
         Company Information
       </h2>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="text-sm font-medium text-gray-500">Company Name</label>
-          <p className="text-gray-900 font-semibold">{company.company_name}</p>
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Company Number</label>
-          <p className="text-gray-900 font-mono">{company.company_number}</p>
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Status</label>
-          <p className={`inline-flex px-2 py-1 text-sm font-medium rounded-full ${
-            company.company_status === 'active'
-              ? 'bg-green-100 text-green-800'
-              : 'bg-red-100 text-red-800'
-          }`}>
-            {company.company_status?.toUpperCase()}
-          </p>
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Company Type</label>
-          <p className="text-gray-900">{company.type}</p>
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-500">Incorporated</label>
-          <p className="text-gray-900">{company.date_of_creation}</p>
-        </div>
-        {company.date_of_cessation && (
-          <div>
-            <label className="text-sm font-medium text-gray-500">Dissolved</label>
-            <p className="text-gray-900">{company.date_of_cessation}</p>
-          </div>
-        )}
-        <div className="md:col-span-2">
-          <label className="text-sm font-medium text-gray-500">Registered Address</label>
-          <p className="text-gray-900">{formatAddress(company.registered_office_address)}</p>
-        </div>
-        {company.sic_codes && company.sic_codes.length > 0 && (
-          <div className="md:col-span-2">
-            <label className="text-sm font-medium text-gray-500">SIC Codes</label>
-            <p className="text-gray-900">{company.sic_codes.join(', ')}</p>
-          </div>
-        )}
+        <div><label className="text-sm font-medium text-gray-500">Company Name</label><p className="text-gray-900 font-semibold">{company.company_name}</p></div>
+        <div><label className="text-sm font-medium text-gray-500">Company Number</label><p className="text-gray-900 font-mono">{company.company_number}</p></div>
+        <div><label className="text-sm font-medium text-gray-500">Status</label><p className={`inline-flex px-2 py-1 text-sm font-medium rounded-full ${company.company_status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{company.company_status?.toUpperCase()}</p></div>
+        <div><label className="text-sm font-medium text-gray-500">Company Type</label><p className="text-gray-900">{company.type}</p></div>
+        <div><label className="text-sm font-medium text-gray-500">Incorporated</label><p className="text-gray-900">{company.date_of_creation}</p></div>
+        {company.date_of_cessation && (<div><label className="text-sm font-medium text-gray-500">Dissolved</label><p className="text-gray-900">{company.date_of_cessation}</p></div>)}
+        <div className="md:col-span-2"><label className="text-sm font-medium text-gray-500">Registered Address</label><p className="text-gray-900">{formatAddress(company.registered_office_address)}</p></div>
+        {company.sic_codes && company.sic_codes.length > 0 && (<div className="md:col-span-2"><label className="text-sm font-medium text-gray-500">SIC Codes</label><p className="text-gray-900">{company.sic_codes.join(', ')}</p></div>)}
       </div>
-
       <div className="mt-4 pt-4 border-t">
-        <a
-          href={`https://find-and-update.company-information.service.gov.uk/company/${company.company_number}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
-        >
+        <a href={`https://find-and-update.company-information.service.gov.uk/company/${company.company_number}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1">
           View on Companies House
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
         </a>
       </div>
     </div>
   )
 }
 
-// Officers Component
 function Officers({ officers }) {
   if (!officers || officers.length === 0) {
-    return (
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Officers</h2>
-        <p className="text-gray-500">No officers found.</p>
-      </div>
-    )
+    return (<div className="bg-white rounded-lg shadow-md p-6 mb-6"><h2 className="text-xl font-bold text-gray-900 mb-4">Officers</h2><p className="text-gray-500">No officers found.</p></div>)
   }
-
-  // Filter active officers (no resigned_on date)
   const activeOfficers = officers.filter(o => !o.resigned_on)
   const directors = activeOfficers.filter(o => o.officer_role?.includes('director'))
   const secretaries = activeOfficers.filter(o => o.officer_role?.includes('secretary'))
-  const others = activeOfficers.filter(o =>
-    !o.officer_role?.includes('director') && !o.officer_role?.includes('secretary')
-  )
+  const others = activeOfficers.filter(o => !o.officer_role?.includes('director') && !o.officer_role?.includes('secretary'))
 
   const OfficerCard = ({ officer }) => (
     <div className="bg-gray-50 rounded-lg p-4">
       <p className="font-semibold text-gray-900">{officer.name}</p>
       <p className="text-sm text-gray-600 capitalize">{officer.officer_role?.replace(/-/g, ' ')}</p>
-      {officer.appointed_on && (
-        <p className="text-sm text-gray-500">Appointed: {officer.appointed_on}</p>
-      )}
-      {officer.nationality && (
-        <p className="text-sm text-gray-500">Nationality: {officer.nationality}</p>
-      )}
-      {officer.occupation && (
-        <p className="text-sm text-gray-500">Occupation: {officer.occupation}</p>
-      )}
+      {officer.appointed_on && (<p className="text-sm text-gray-500">Appointed: {officer.appointed_on}</p>)}
+      {officer.nationality && (<p className="text-sm text-gray-500">Nationality: {officer.nationality}</p>)}
+      {officer.occupation && (<p className="text-sm text-gray-500">Occupation: {officer.occupation}</p>)}
       <p className="text-sm text-gray-500 mt-1">{formatAddress(officer.address)}</p>
     </div>
   )
@@ -700,263 +601,72 @@ function Officers({ officers }) {
   return (
     <div className="bg-white rounded-lg shadow-md p-6 mb-6">
       <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-        </svg>
+        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
         Officers ({activeOfficers.length} active)
       </h2>
-
-      {directors.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Directors ({directors.length})</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {directors.map((officer, idx) => (
-              <OfficerCard key={idx} officer={officer} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {secretaries.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Secretaries ({secretaries.length})</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {secretaries.map((officer, idx) => (
-              <OfficerCard key={idx} officer={officer} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {others.length > 0 && (
-        <div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Other Officers ({others.length})</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {others.map((officer, idx) => (
-              <OfficerCard key={idx} officer={officer} />
-            ))}
-          </div>
-        </div>
-      )}
+      {directors.length > 0 && (<div className="mb-6"><h3 className="text-lg font-semibold text-gray-800 mb-3">Directors ({directors.length})</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{directors.map((officer, idx) => (<OfficerCard key={idx} officer={officer} />))}</div></div>)}
+      {secretaries.length > 0 && (<div className="mb-6"><h3 className="text-lg font-semibold text-gray-800 mb-3">Secretaries ({secretaries.length})</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{secretaries.map((officer, idx) => (<OfficerCard key={idx} officer={officer} />))}</div></div>)}
+      {others.length > 0 && (<div><h3 className="text-lg font-semibold text-gray-800 mb-3">Other Officers ({others.length})</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{others.map((officer, idx) => (<OfficerCard key={idx} officer={officer} />))}</div></div>)}
     </div>
   )
 }
 
-// PSC Component
 function PersonsWithSignificantControl({ pscs }) {
   if (!pscs || pscs.length === 0) {
-    return (
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Persons with Significant Control</h2>
-        <p className="text-gray-500">No PSC information found.</p>
-      </div>
-    )
+    return (<div className="bg-white rounded-lg shadow-md p-6 mb-6"><h2 className="text-xl font-bold text-gray-900 mb-4">Persons with Significant Control</h2><p className="text-gray-500">No PSC information found.</p></div>)
   }
-
-  // Filter active PSCs
   const activePSCs = pscs.filter(psc => !psc.ceased_on)
   const individuals = activePSCs.filter(psc => psc.kind?.includes('individual'))
   const corporateEntities = activePSCs.filter(psc => psc.kind?.includes('corporate-entity'))
   const legalPersons = activePSCs.filter(psc => psc.kind?.includes('legal-person'))
 
   const PSCCard = ({ psc }) => (
-    <div className={`rounded-lg p-4 ${
-      psc.kind?.includes('corporate-entity') ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50'
-    }`}>
+    <div className={`rounded-lg p-4 ${psc.kind?.includes('corporate-entity') ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50'}`}>
       <div className="flex items-start justify-between">
         <p className="font-semibold text-gray-900">{psc.name}</p>
-        {psc.kind?.includes('corporate-entity') && (
-          <span className="px-2 py-1 text-xs font-medium bg-purple-200 text-purple-800 rounded-full">
-            Corporate
-          </span>
-        )}
+        {psc.kind?.includes('corporate-entity') && (<span className="px-2 py-1 text-xs font-medium bg-purple-200 text-purple-800 rounded-full">Corporate</span>)}
       </div>
-
-      {psc.identification && (
-        <div className="mt-2 text-sm text-gray-600">
-          {psc.identification.registration_number && (
-            <p>Registration: {psc.identification.registration_number}</p>
-          )}
-          {psc.identification.place_registered && (
-            <p>Registered at: {psc.identification.place_registered}</p>
-          )}
-          {psc.identification.legal_form && (
-            <p>Legal form: {psc.identification.legal_form}</p>
-          )}
-        </div>
-      )}
-
-      {psc.natures_of_control && psc.natures_of_control.length > 0 && (
-        <div className="mt-3">
-          <p className="text-sm font-medium text-gray-700 mb-1">Nature of Control:</p>
-          <ul className="text-sm text-gray-600 space-y-1">
-            {psc.natures_of_control.map((nature, idx) => (
-              <li key={idx} className="flex items-center gap-1">
-                <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                {formatNatureOfControl(nature)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {psc.date_of_birth && (
-        <p className="text-sm text-gray-500 mt-2">
-          DOB: {psc.date_of_birth.month}/{psc.date_of_birth.year}
-        </p>
-      )}
-      {psc.nationality && (
-        <p className="text-sm text-gray-500">Nationality: {psc.nationality}</p>
-      )}
-      {psc.country_of_residence && (
-        <p className="text-sm text-gray-500">Country: {psc.country_of_residence}</p>
-      )}
+      {psc.identification && (<div className="mt-2 text-sm text-gray-600">{psc.identification.registration_number && (<p>Registration: {psc.identification.registration_number}</p>)}{psc.identification.place_registered && (<p>Registered at: {psc.identification.place_registered}</p>)}{psc.identification.legal_form && (<p>Legal form: {psc.identification.legal_form}</p>)}</div>)}
+      {psc.natures_of_control && psc.natures_of_control.length > 0 && (<div className="mt-3"><p className="text-sm font-medium text-gray-700 mb-1">Nature of Control:</p><ul className="text-sm text-gray-600 space-y-1">{psc.natures_of_control.map((nature, idx) => (<li key={idx} className="flex items-center gap-1"><svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>{formatNatureOfControl(nature)}</li>))}</ul></div>)}
+      {psc.date_of_birth && (<p className="text-sm text-gray-500 mt-2">DOB: {psc.date_of_birth.month}/{psc.date_of_birth.year}</p>)}
+      {psc.nationality && (<p className="text-sm text-gray-500">Nationality: {psc.nationality}</p>)}
+      {psc.country_of_residence && (<p className="text-sm text-gray-500">Country: {psc.country_of_residence}</p>)}
       <p className="text-sm text-gray-500 mt-1">{formatAddress(psc.address)}</p>
-      {psc.notified_on && (
-        <p className="text-sm text-gray-400 mt-2">Notified: {psc.notified_on}</p>
-      )}
+      {psc.notified_on && (<p className="text-sm text-gray-400 mt-2">Notified: {psc.notified_on}</p>)}
     </div>
   )
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6 mb-6">
       <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-        </svg>
+        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
         Persons with Significant Control ({activePSCs.length})
       </h2>
-
-      {individuals.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Individuals ({individuals.length})</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {individuals.map((psc, idx) => (
-              <PSCCard key={idx} psc={psc} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {corporateEntities.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Corporate Entities ({corporateEntities.length})</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {corporateEntities.map((psc, idx) => (
-              <PSCCard key={idx} psc={psc} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {legalPersons.length > 0 && (
-        <div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Legal Persons ({legalPersons.length})</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {legalPersons.map((psc, idx) => (
-              <PSCCard key={idx} psc={psc} />
-            ))}
-          </div>
-        </div>
-      )}
+      {individuals.length > 0 && (<div className="mb-6"><h3 className="text-lg font-semibold text-gray-800 mb-3">Individuals ({individuals.length})</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{individuals.map((psc, idx) => (<PSCCard key={idx} psc={psc} />))}</div></div>)}
+      {corporateEntities.length > 0 && (<div className="mb-6"><h3 className="text-lg font-semibold text-gray-800 mb-3">Corporate Entities ({corporateEntities.length})</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{corporateEntities.map((psc, idx) => (<PSCCard key={idx} psc={psc} />))}</div></div>)}
+      {legalPersons.length > 0 && (<div><h3 className="text-lg font-semibold text-gray-800 mb-3">Legal Persons ({legalPersons.length})</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{legalPersons.map((psc, idx) => (<PSCCard key={idx} psc={psc} />))}</div></div>)}
     </div>
   )
 }
 
-// Ownership Chain Node Component
 function OwnershipChainNode({ node, isRoot = false }) {
   if (!node) return null
-
   const hasError = node.error
   const hasPSCs = node.pscs && node.pscs.length > 0
-
   return (
     <div className={`relative ${!isRoot ? 'ml-8 mt-4' : ''}`}>
-      {!isRoot && (
-        <div className="absolute -left-6 top-0 h-full">
-          <div className="absolute top-6 left-0 w-6 border-t-2 border-gray-300"></div>
-          <div className="absolute top-0 left-0 h-6 border-l-2 border-gray-300"></div>
-        </div>
-      )}
-
-      <div className={`rounded-lg p-4 border-2 ${
-        isRoot ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white'
-      } ${hasError ? 'border-red-300 bg-red-50' : ''}`}>
-        <div className="flex items-center gap-2">
-          <div className={`w-3 h-3 rounded-full ${
-            isRoot ? 'bg-blue-500' : hasError ? 'bg-red-500' : 'bg-green-500'
-          }`}></div>
-          <p className="font-semibold text-gray-900">
-            {node.company_name || node.company_number}
-          </p>
-        </div>
+      {!isRoot && (<div className="absolute -left-6 top-0 h-full"><div className="absolute top-6 left-0 w-6 border-t-2 border-gray-300"></div><div className="absolute top-0 left-0 h-6 border-l-2 border-gray-300"></div></div>)}
+      <div className={`rounded-lg p-4 border-2 ${isRoot ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white'} ${hasError ? 'border-red-300 bg-red-50' : ''}`}>
+        <div className="flex items-center gap-2"><div className={`w-3 h-3 rounded-full ${isRoot ? 'bg-blue-500' : hasError ? 'bg-red-500' : 'bg-green-500'}`}></div><p className="font-semibold text-gray-900">{node.company_name || node.company_number}</p></div>
         <p className="text-sm text-gray-600 font-mono ml-5">{node.company_number}</p>
-        {node.company_status && (
-          <p className={`text-sm ml-5 ${
-            node.company_status === 'active' ? 'text-green-600' : 'text-red-600'
-          }`}>
-            Status: {node.company_status}
-          </p>
-        )}
-        {hasError && (
-          <p className="text-sm text-red-600 ml-5">Error: {node.error}</p>
-        )}
+        {node.company_status && (<p className={`text-sm ml-5 ${node.company_status === 'active' ? 'text-green-600' : 'text-red-600'}`}>Status: {node.company_status}</p>)}
+        {hasError && (<p className="text-sm text-red-600 ml-5">Error: {node.error}</p>)}
       </div>
-
-      {hasPSCs && (
-        <div className="mt-2">
-          {node.pscs.map((psc, idx) => (
-            <div key={idx} className="relative ml-8 mt-4">
-              <div className="absolute -left-6 top-0 h-full">
-                <div className="absolute top-6 left-0 w-6 border-t-2 border-purple-300"></div>
-                <div className="absolute top-0 left-0 h-6 border-l-2 border-purple-300"></div>
-              </div>
-
-              <div className={`rounded-lg p-3 border-2 ${
-                psc.kind?.includes('corporate-entity')
-                  ? 'border-purple-400 bg-purple-50'
-                  : 'border-green-400 bg-green-50'
-              }`}>
-                <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${
-                    psc.kind?.includes('corporate-entity') ? 'bg-purple-500' : 'bg-green-500'
-                  }`}></div>
-                  <p className="font-semibold text-gray-900">{psc.name}</p>
-                </div>
-                <p className="text-xs text-gray-600 ml-5 capitalize">
-                  {psc.kind?.replace(/-/g, ' ').replace('person with significant control', 'PSC')}
-                </p>
-                {psc.natures_of_control && psc.natures_of_control.length > 0 && (
-                  <div className="ml-5 mt-1">
-                    {psc.natures_of_control.slice(0, 2).map((nature, nidx) => (
-                      <span key={nidx} className="text-xs text-gray-500 block">
-                        {formatNatureOfControl(nature)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {psc.identification?.registration_number && (
-                  <p className="text-xs text-purple-600 ml-5 font-mono">
-                    Reg: {psc.identification.registration_number}
-                  </p>
-                )}
-              </div>
-
-              {/* Recursively render parent chain for corporate entities */}
-              {psc.parent_chain && (
-                <OwnershipChainNode node={psc.parent_chain} />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {hasPSCs && (<div className="mt-2">{node.pscs.map((psc, idx) => (<div key={idx} className="relative ml-8 mt-4"><div className="absolute -left-6 top-0 h-full"><div className="absolute top-6 left-0 w-6 border-t-2 border-purple-300"></div><div className="absolute top-0 left-0 h-6 border-l-2 border-purple-300"></div></div><div className={`rounded-lg p-3 border-2 ${psc.kind?.includes('corporate-entity') ? 'border-purple-400 bg-purple-50' : 'border-green-400 bg-green-50'}`}><div className="flex items-center gap-2"><div className={`w-3 h-3 rounded-full ${psc.kind?.includes('corporate-entity') ? 'bg-purple-500' : 'bg-green-500'}`}></div><p className="font-semibold text-gray-900">{psc.name}</p></div><p className="text-xs text-gray-600 ml-5 capitalize">{psc.kind?.replace(/-/g, ' ').replace('person with significant control', 'PSC')}</p>{psc.natures_of_control && psc.natures_of_control.length > 0 && (<div className="ml-5 mt-1">{psc.natures_of_control.slice(0, 2).map((nature, nidx) => (<span key={nidx} className="text-xs text-gray-500 block">{formatNatureOfControl(nature)}</span>))}</div>)}{psc.identification?.registration_number && (<p className="text-xs text-purple-600 ml-5 font-mono">Reg: {psc.identification.registration_number}</p>)}</div>{psc.parent_chain && (<OwnershipChainNode node={psc.parent_chain} />)}</div>))}</div>)}
     </div>
   )
 }
 
-// Ownership Chain Component
 function OwnershipChain({ chain, loading, companyName }) {
   const downloadStructureChart = () => {
     if (!chain) return
@@ -964,67 +674,27 @@ function OwnershipChain({ chain, loading, companyName }) {
     const filename = `${companyName || 'ownership-chain'}_structure_${new Date().toISOString().split('T')[0]}.svg`.replace(/[^a-zA-Z0-9_.-]/g, '_')
     downloadSVG(svg, filename)
   }
-
   if (loading) {
-    return (
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Ownership Chain</h2>
-        <div className="flex items-center justify-center p-8">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-purple-500 border-t-transparent"></div>
-          <p className="ml-3 text-gray-600">Tracing ownership chain...</p>
-        </div>
-      </div>
-    )
+    return (<div className="bg-white rounded-lg shadow-md p-6 mb-6"><h2 className="text-xl font-bold text-gray-900 mb-4">Ownership Chain</h2><div className="flex items-center justify-center p-8"><div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-purple-500 border-t-transparent"></div><p className="ml-3 text-gray-600">Tracing ownership chain...</p></div></div>)
   }
-
   if (!chain) return null
-
   return (
     <div className="bg-white rounded-lg shadow-md p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-          Ultimate Beneficial Ownership Chain
-        </h2>
-        <button
-          onClick={downloadStructureChart}
-          className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors flex items-center gap-1"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          Download Structure Chart
-        </button>
+        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2"><svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Ultimate Beneficial Ownership Chain</h2>
+        <button onClick={downloadStructureChart} className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors flex items-center gap-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>Download Structure Chart</button>
       </div>
-
       <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
         <p>This diagram traces corporate ownership through UK-registered companies to identify ultimate beneficial owners.</p>
-        <div className="flex flex-wrap gap-4 mt-2">
-          <span className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-blue-500"></div> Target Company
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-purple-500"></div> Corporate PSC
-          </span>
-          <span className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-green-500"></div> Individual/Legal Person
-          </span>
-        </div>
+        <div className="flex flex-wrap gap-4 mt-2"><span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Target Company</span><span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-purple-500"></div> Corporate PSC</span><span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-green-500"></div> Individual/Legal Person</span></div>
       </div>
-
-      <div className="overflow-x-auto">
-        <div className="min-w-max p-4">
-          <OwnershipChainNode node={chain} isRoot={true} />
-        </div>
-      </div>
+      <div className="overflow-x-auto"><div className="min-w-max p-4"><OwnershipChainNode node={chain} isRoot={true} /></div></div>
     </div>
   )
 }
 
-// Main App Component
-function App() {
+// PSC Extractor Module
+function PSCExtractor({ onBack }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searchLoading, setSearchLoading] = useState(false)
@@ -1040,7 +710,6 @@ function App() {
   const handleSearch = async (e) => {
     e.preventDefault()
     if (!searchQuery.trim()) return
-
     setSearchLoading(true)
     setError(null)
     setSearchResults(null)
@@ -1049,7 +718,6 @@ function App() {
     setOfficers(null)
     setPSCs(null)
     setOwnershipChain(null)
-
     try {
       const data = await api.search(searchQuery)
       setSearchResults(data.items || [])
@@ -1067,24 +735,16 @@ function App() {
     setError(null)
     setSearchResults(null)
     setOwnershipChain(null)
-
     try {
-      // Fetch company data, officers, and PSCs in parallel
       const [company, officersData, pscsData] = await Promise.all([
         api.getCompany(companyNumber),
         api.getOfficers(companyNumber).catch(() => ({ items: [] })),
         api.getPSCs(companyNumber).catch(() => ({ items: [] }))
       ])
-
       setCompanyData(company)
       setOfficers(officersData.items || [])
       setPSCs(pscsData.items || [])
-
-      // Check if there are corporate PSCs to trace
-      const hasCorporatePSCs = (pscsData.items || []).some(
-        psc => psc.kind?.includes('corporate-entity') && !psc.ceased_on
-      )
-
+      const hasCorporatePSCs = (pscsData.items || []).some(psc => psc.kind?.includes('corporate-entity') && !psc.ceased_on)
       if (hasCorporatePSCs) {
         setChainLoading(true)
         try {
@@ -1116,136 +776,479 @@ function App() {
   }
 
   return (
+    <div>
+      {/* Header actions */}
+      <div className="flex items-center justify-between mb-6">
+        <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+          Back to Modules
+        </button>
+        {selectedCompany && (
+          <div className="flex items-center gap-2">
+            <button onClick={() => { const csv = generateCSV(companyData, officers, pscs, ownershipChain); const filename = `${companyData?.company_name || selectedCompany}_${new Date().toISOString().split('T')[0]}.csv`; downloadCSV(csv, filename.replace(/[^a-zA-Z0-9_-]/g, '_')) }} disabled={!companyData} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              Download CSV
+            </button>
+            <button onClick={handleReset} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">New Search</button>
+          </div>
+        )}
+      </div>
+
+      {/* Search Section */}
+      {!selectedCompany && (
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Company</h2>
+            <form onSubmit={handleSearch} className="space-y-4">
+              <div>
+                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">Company name or number</label>
+                <input id="search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g., Apple UK Limited or 03977902" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" autoFocus />
+              </div>
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
+            </form>
+            {error && (<div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+            <SearchResults results={searchResults} onSelect={handleSelectCompany} loading={searchLoading} />
+          </div>
+        </div>
+      )}
+
+      {/* Company Data Section */}
+      {selectedCompany && (
+        <div>
+          {loading ? (
+            <div className="flex items-center justify-center p-12"><div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div><p className="ml-4 text-lg text-gray-600">Loading company data...</p></div>
+          ) : (
+            <>
+              {error && (<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+              <CompanyProfile company={companyData} />
+              <Officers officers={officers} />
+              <PersonsWithSignificantControl pscs={pscs} />
+              {(ownershipChain || chainLoading) && (<OwnershipChain chain={ownershipChain} loading={chainLoading} companyName={companyData?.company_name} />)}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================
+// Cross-directorship Search Components
+// ============================================
+function CrossDirectorshipSearch({ onBack }) {
+  const [step, setStep] = useState(1) // 1: Search, 2: Select initial, 3: Find related, 4: Confirm matches, 5: Results
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [selectedOfficer, setSelectedOfficer] = useState(null)
+  const [relatedOfficers, setRelatedOfficers] = useState(null)
+  const [relatedLoading, setRelatedLoading] = useState(false)
+  const [selectedOfficerIds, setSelectedOfficerIds] = useState(new Set())
+  const [appointments, setAppointments] = useState(null)
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    try {
+      const data = await api.searchOfficers(searchQuery)
+      setSearchResults(data.items || [])
+      setStep(2)
+    } catch (err) {
+      setError('Officer search failed. Please try again.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const handleSelectInitialOfficer = async (officer) => {
+    setSelectedOfficer(officer)
+    setSelectedOfficerIds(new Set([officer.officer_id]))
+    setRelatedLoading(true)
+    setStep(3)
+
+    try {
+      const dob = officer.date_of_birth
+      const data = await api.findRelatedOfficers(
+        officer.title,
+        dob?.month,
+        dob?.year
+      )
+      // Filter out the already selected officer
+      const filtered = data.items.filter(o => o.officer_id !== officer.officer_id)
+      setRelatedOfficers(filtered)
+      setStep(4)
+    } catch (err) {
+      setError('Failed to find related officers.')
+      console.error(err)
+    } finally {
+      setRelatedLoading(false)
+    }
+  }
+
+  const toggleOfficerSelection = (officerId) => {
+    const newSet = new Set(selectedOfficerIds)
+    if (newSet.has(officerId)) {
+      // Don't allow deselecting the initial officer
+      if (officerId !== selectedOfficer?.officer_id) {
+        newSet.delete(officerId)
+      }
+    } else {
+      newSet.add(officerId)
+    }
+    setSelectedOfficerIds(newSet)
+  }
+
+  const handleFetchAppointments = async () => {
+    setAppointmentsLoading(true)
+    setError(null)
+    setStep(5)
+
+    try {
+      const allAppointments = []
+      const seenCompanies = new Set()
+
+      for (const officerId of selectedOfficerIds) {
+        try {
+          const data = await api.getOfficerAppointments(officerId)
+          for (const apt of (data.items || [])) {
+            // Deduplicate by company number + role
+            const key = `${apt.appointed_to?.company_number}-${apt.officer_role}`
+            if (!seenCompanies.has(key)) {
+              seenCompanies.add(key)
+              allAppointments.push(apt)
+            }
+          }
+        } catch (err) {
+          console.error(`Failed to fetch appointments for ${officerId}:`, err)
+        }
+      }
+
+      // Sort by company status (active first) then by appointed date
+      allAppointments.sort((a, b) => {
+        const aActive = a.appointed_to?.company_status === 'active'
+        const bActive = b.appointed_to?.company_status === 'active'
+        if (aActive !== bActive) return bActive ? 1 : -1
+        return (b.appointed_on || '').localeCompare(a.appointed_on || '')
+      })
+
+      setAppointments(allAppointments)
+    } catch (err) {
+      setError('Failed to fetch appointments.')
+      console.error(err)
+    } finally {
+      setAppointmentsLoading(false)
+    }
+  }
+
+  const handleReset = () => {
+    setStep(1)
+    setSearchQuery('')
+    setSearchResults(null)
+    setSelectedOfficer(null)
+    setRelatedOfficers(null)
+    setSelectedOfficerIds(new Set())
+    setAppointments(null)
+    setError(null)
+  }
+
+  const formatDOB = (dob) => {
+    if (!dob) return 'N/A'
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    return `${months[dob.month - 1]} ${dob.year}`
+  }
+
+  const generateAppointmentsCSV = () => {
+    if (!appointments) return
+    const lines = ['Company Name,Company Number,Company Status,Role,Appointed,Resigned,Address']
+    for (const apt of appointments) {
+      lines.push([
+        escapeCSV(apt.appointed_to?.company_name),
+        escapeCSV(apt.appointed_to?.company_number),
+        escapeCSV(apt.appointed_to?.company_status),
+        escapeCSV(apt.officer_role?.replace(/-/g, ' ')),
+        escapeCSV(apt.appointed_on),
+        escapeCSV(apt.resigned_on || 'Current'),
+        escapeCSV(formatAddress(apt.address))
+      ].join(','))
+    }
+    const csv = lines.join('\n')
+    const filename = `${selectedOfficer?.title || 'officer'}_appointments_${new Date().toISOString().split('T')[0]}.csv`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+    downloadCSV(csv, filename)
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+          Back to Modules
+        </button>
+        {step > 1 && (
+          <button onClick={handleReset} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">Start Over</button>
+        )}
+      </div>
+
+      {/* Progress indicator */}
+      <div className="mb-8">
+        <div className="flex items-center justify-center gap-2">
+          {[1, 2, 3, 4, 5].map((s) => (
+            <div key={s} className="flex items-center">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= s ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-500'}`}>{s}</div>
+              {s < 5 && <div className={`w-12 h-1 ${step > s ? 'bg-purple-600' : 'bg-gray-200'}`}></div>}
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-center mt-2 text-sm text-gray-600">
+          {step === 1 && 'Search for a director'}
+          {step === 2 && 'Select the person'}
+          {step === 3 && 'Finding related records...'}
+          {step === 4 && 'Confirm matches'}
+          {step === 5 && 'View appointments'}
+        </div>
+      </div>
+
+      {error && (<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+
+      {/* Step 1: Search */}
+      {step === 1 && (
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Director</h2>
+            <p className="text-gray-600 mb-6">Enter the name of the person you want to search for. You'll be able to identify them by their date of birth in the next step.</p>
+            <form onSubmit={handleSearch} className="space-y-4">
+              <div>
+                <label htmlFor="officer-search" className="block text-sm font-medium text-gray-700 mb-1">Director name</label>
+                <input id="officer-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g., John Smith" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" autoFocus />
+              </div>
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Select initial officer */}
+      {step === 2 && searchResults && (
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Select the Person</h2>
+            <p className="text-gray-600 mb-6">Found {searchResults.length} results. Select the person you're looking for - use the date of birth to identify the correct one.</p>
+
+            {searchResults.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">No officers found matching "{searchQuery}"</p>
+            ) : (
+              <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                {searchResults.map((officer, idx) => {
+                  const officerId = officer.links?.self?.replace('/officers/', '').replace('/appointments', '')
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => handleSelectInitialOfficer({ ...officer, officer_id: officerId })}
+                      className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-purple-400 hover:bg-purple-50 transition-all"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-semibold text-gray-900">{officer.title}</p>
+                          <p className="text-sm text-gray-600">DOB: {formatDOB(officer.date_of_birth)}</p>
+                          {officer.address_snippet && <p className="text-sm text-gray-500 mt-1">{officer.address_snippet}</p>}
+                        </div>
+                        <span className="text-sm text-gray-400">{officer.appointments} appointment{officer.appointments !== 1 ? 's' : ''}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Loading related */}
+      {step === 3 && relatedLoading && (
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mb-4"></div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Finding Related Records</h2>
+            <p className="text-gray-600">Searching for other Companies House records that may belong to {selectedOfficer?.title}...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: Confirm matches */}
+      {step === 4 && (
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Confirm Matches</h2>
+            <p className="text-gray-600 mb-6">We found {relatedOfficers?.length || 0} other records with the same date of birth. Select any that belong to the same person.</p>
+
+            {/* Selected officer */}
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-gray-500 mb-2">Selected Person:</h3>
+              <div className="p-4 rounded-lg bg-purple-100 border-2 border-purple-400">
+                <p className="font-semibold text-gray-900">{selectedOfficer?.title}</p>
+                <p className="text-sm text-gray-600">DOB: {formatDOB(selectedOfficer?.date_of_birth)}</p>
+                {selectedOfficer?.address_snippet && <p className="text-sm text-gray-500">{selectedOfficer.address_snippet}</p>}
+              </div>
+            </div>
+
+            {/* Related officers */}
+            {relatedOfficers && relatedOfficers.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-gray-500 mb-2">Possible Matches (same DOB):</h3>
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {relatedOfficers.map((officer, idx) => {
+                    const isSelected = selectedOfficerIds.has(officer.officer_id)
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => toggleOfficerSelection(officer.officer_id)}
+                        className={`w-full text-left p-4 rounded-lg border-2 transition-all ${isSelected ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:border-gray-300'}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${isSelected ? 'border-purple-500 bg-purple-500' : 'border-gray-300'}`}>
+                            {isSelected && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                          </div>
+                          <div className="flex-grow">
+                            <p className="font-semibold text-gray-900">{officer.title}</p>
+                            <p className="text-sm text-gray-600">DOB: {formatDOB(officer.date_of_birth)}</p>
+                            {officer.address_snippet && <p className="text-sm text-gray-500">{officer.address_snippet}</p>}
+                          </div>
+                          <span className="text-sm text-gray-400">{officer.appointments} appt{officer.appointments !== 1 ? 's' : ''}</span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {relatedOfficers && relatedOfficers.length === 0 && (
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg text-gray-600 text-center">
+                No other records found with matching date of birth.
+              </div>
+            )}
+
+            <button onClick={handleFetchAppointments} className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition-colors">
+              View All Appointments ({selectedOfficerIds.size} record{selectedOfficerIds.size !== 1 ? 's' : ''} selected)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 5: Results */}
+      {step === 5 && (
+        <div className="max-w-6xl mx-auto">
+          {appointmentsLoading ? (
+            <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mb-4"></div>
+              <p className="text-gray-600">Loading appointments...</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-lg p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Appointments for {selectedOfficer?.title}</h2>
+                  <p className="text-gray-600">{appointments?.length || 0} positions found across {selectedOfficerIds.size} record{selectedOfficerIds.size !== 1 ? 's' : ''}</p>
+                </div>
+                <button onClick={generateAppointmentsCSV} disabled={!appointments || appointments.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  Download CSV
+                </button>
+              </div>
+
+              {appointments && appointments.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Company</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Role</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Appointed</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Resigned</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {appointments.map((apt, idx) => (
+                        <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4">
+                            <a href={`https://find-and-update.company-information.service.gov.uk/company/${apt.appointed_to?.company_number}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">{apt.appointed_to?.company_name}</a>
+                            <p className="text-xs text-gray-500 font-mono">{apt.appointed_to?.company_number}</p>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${apt.appointed_to?.company_status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                              {apt.appointed_to?.company_status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 capitalize">{apt.officer_role?.replace(/-/g, ' ')}</td>
+                          <td className="py-3 px-4">{apt.appointed_on || 'N/A'}</td>
+                          <td className="py-3 px-4">{apt.resigned_on || <span className="text-green-600 font-medium">Current</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No appointments found.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================
+// Main App Component
+// ============================================
+function App() {
+  const [selectedModule, setSelectedModule] = useState(null)
+
+  return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-600 p-2 rounded-lg">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Companies House Extractor</h1>
-                <p className="text-sm text-gray-500">Extract company information, officers, and ownership data</p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
             </div>
-            {selectedCompany && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    const csv = generateCSV(companyData, officers, pscs, ownershipChain)
-                    const filename = `${companyData?.company_name || selectedCompany}_${new Date().toISOString().split('T')[0]}.csv`
-                    downloadCSV(csv, filename.replace(/[^a-zA-Z0-9_-]/g, '_'))
-                  }}
-                  disabled={!companyData}
-                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Download CSV
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  New Search
-                </button>
-              </div>
-            )}
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Companies House Extractor</h1>
+              <p className="text-sm text-gray-500">Extract company information, officers, and ownership data</p>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Search Section */}
-        {!selectedCompany && (
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Company</h2>
-              <form onSubmit={handleSearch} className="space-y-4">
-                <div>
-                  <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
-                    Company name or number
-                  </label>
-                  <input
-                    id="search"
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="e.g., Apple UK Limited or 03977902"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    autoFocus
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={searchLoading || !searchQuery.trim()}
-                  className="w-full px-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {searchLoading ? 'Searching...' : 'Search'}
-                </button>
-              </form>
-
-              {error && (
-                <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                  {error}
-                </div>
-              )}
-
-              <SearchResults
-                results={searchResults}
-                onSelect={handleSelectCompany}
-                loading={searchLoading}
-              />
-            </div>
-          </div>
+        {!selectedModule && (
+          <ModuleSelector onSelectModule={setSelectedModule} />
         )}
 
-        {/* Company Data Section */}
-        {selectedCompany && (
-          <div>
-            {loading ? (
-              <div className="flex items-center justify-center p-12">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-                <p className="ml-4 text-lg text-gray-600">Loading company data...</p>
-              </div>
-            ) : (
-              <>
-                {error && (
-                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                    {error}
-                  </div>
-                )}
+        {selectedModule === 'psc-extractor' && (
+          <PSCExtractor onBack={() => setSelectedModule(null)} />
+        )}
 
-                <CompanyProfile company={companyData} />
-                <Officers officers={officers} />
-                <PersonsWithSignificantControl pscs={pscs} />
-
-                {(ownershipChain || chainLoading) && (
-                  <OwnershipChain chain={ownershipChain} loading={chainLoading} companyName={companyData?.company_name} />
-                )}
-              </>
-            )}
-          </div>
+        {selectedModule === 'cross-directorship' && (
+          <CrossDirectorshipSearch onBack={() => setSelectedModule(null)} />
         )}
       </main>
 
       {/* Footer */}
       <footer className="mt-auto py-6 text-center text-sm text-gray-500">
         <p>Data sourced from Companies House. All information can be verified at{' '}
-          <a
-            href="https://find-and-update.company-information.service.gov.uk/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
-          >
-            Companies House
-          </a>
+          <a href="https://find-and-update.company-information.service.gov.uk/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Companies House</a>
         </p>
       </footer>
     </div>

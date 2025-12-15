@@ -232,6 +232,138 @@ app.get('/api/company/:companyNumber/ownership-chain', async (req, res) => {
   }
 });
 
+// ============================================
+// Cross-directorship Search API Endpoints
+// ============================================
+
+// Search for officers by name
+app.get('/api/officers/search', async (req, res) => {
+  try {
+    const { q, items_per_page = 50 } = req.query;
+    if (!q) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+    const data = await fetchFromCompaniesHouse(
+      `/search/officers?q=${encodeURIComponent(q)}&items_per_page=${items_per_page}`
+    );
+    res.json(data);
+  } catch (error) {
+    console.error('Officer search error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get officer appointments by officer ID
+app.get('/api/officers/:officerId/appointments', async (req, res) => {
+  try {
+    const { officerId } = req.params;
+    const maxAppointments = 500;
+    const pageSize = 50;
+    let allItems = [];
+    let startIndex = 0;
+    let totalResults = 0;
+
+    // Fetch first page
+    const firstPage = await fetchFromCompaniesHouse(
+      `/officers/${officerId}/appointments?items_per_page=${pageSize}&start_index=0`
+    );
+
+    allItems = firstPage.items || [];
+    totalResults = firstPage.total_results || allItems.length;
+
+    // Fetch remaining pages if needed
+    while (allItems.length < totalResults && allItems.length < maxAppointments) {
+      startIndex += pageSize;
+      const nextPage = await fetchFromCompaniesHouse(
+        `/officers/${officerId}/appointments?items_per_page=${pageSize}&start_index=${startIndex}`
+      );
+      if (!nextPage.items || nextPage.items.length === 0) break;
+      allItems = allItems.concat(nextPage.items);
+    }
+
+    res.json({
+      ...firstPage,
+      items: allItems.slice(0, maxAppointments),
+      items_per_page: allItems.length,
+      total_results: totalResults
+    });
+  } catch (error) {
+    console.error('Officer appointments error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Find related officers by DOB match (for cross-directorship stitching)
+app.get('/api/officers/find-related', async (req, res) => {
+  try {
+    const { name, dobMonth, dobYear } = req.query;
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    // Extract surname (last word) and first name for variation searches
+    const nameParts = name.trim().split(' ');
+    const surname = nameParts[nameParts.length - 1];
+    const firstName = nameParts[0];
+
+    // Search variations to find potential matches
+    const searchQueries = [
+      name, // Full name as provided
+      surname, // Just surname
+      `${firstName} ${surname}` // First + Last (no middle names)
+    ];
+
+    // Remove duplicates
+    const uniqueQueries = [...new Set(searchQueries.map(q => q.toLowerCase()))];
+
+    const allResults = [];
+    const seenOfficerIds = new Set();
+
+    for (const query of uniqueQueries) {
+      try {
+        const data = await fetchFromCompaniesHouse(
+          `/search/officers?q=${encodeURIComponent(query)}&items_per_page=100`
+        );
+
+        if (data.items) {
+          for (const officer of data.items) {
+            // Extract officer ID from links
+            const officerId = officer.links?.self?.replace('/officers/', '').replace('/appointments', '') || null;
+
+            // Skip if we've already seen this officer
+            if (officerId && seenOfficerIds.has(officerId)) continue;
+            if (officerId) seenOfficerIds.add(officerId);
+
+            // Filter by DOB if provided
+            if (dobMonth && dobYear) {
+              const dob = officer.date_of_birth;
+              if (!dob || dob.month !== parseInt(dobMonth) || dob.year !== parseInt(dobYear)) {
+                continue;
+              }
+            }
+
+            allResults.push({
+              ...officer,
+              officer_id: officerId
+            });
+          }
+        }
+      } catch (e) {
+        console.log(`Search for "${query}" failed: ${e.message}`);
+      }
+    }
+
+    res.json({
+      items: allResults,
+      total_results: allResults.length,
+      search_queries_used: uniqueQueries
+    });
+  } catch (error) {
+    console.error('Find related officers error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({
