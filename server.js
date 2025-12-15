@@ -335,13 +335,15 @@ app.get('/api/officers/find-related', async (req, res) => {
       return officerFirst === firstName && officerSurname === surname;
     };
 
-    // Create search queries - try with and without apostrophes for better API matching
+    // Create search queries - try multiple variations for better API matching
     const baseQuery = `${firstName} ${surname}`;
-    const queryWithoutApostrophe = baseQuery.replace(/'/g, '');
-    const searchQueries = [baseQuery];
-    if (queryWithoutApostrophe !== baseQuery) {
-      searchQueries.push(queryWithoutApostrophe);
-    }
+    const surnameFirst = `${surname} ${firstName}`;
+    const searchQueries = new Set([
+      baseQuery,                              // "paul o'donnell"
+      baseQuery.replace(/'/g, ''),            // "paul odonnell"
+      surnameFirst,                           // "o'donnell paul"
+      surnameFirst.replace(/'/g, ''),         // "odonnell paul"
+    ]);
 
     const allResults = [];
     const seenOfficerIds = new Set();
