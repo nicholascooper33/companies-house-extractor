@@ -335,56 +335,63 @@ app.get('/api/officers/find-related', async (req, res) => {
       return officerFirst === firstName && officerSurname === surname;
     };
 
-    // Search for "firstName surname" - the API does fuzzy matching so will also find
-    // "Nicholas Matthew Cooper" when searching "Nicholas Cooper"
-    const searchQuery = `${firstName} ${surname}`;
+    // Create search queries - try with and without apostrophes for better API matching
+    const baseQuery = `${firstName} ${surname}`;
+    const queryWithoutApostrophe = baseQuery.replace(/'/g, '');
+    const searchQueries = [baseQuery];
+    if (queryWithoutApostrophe !== baseQuery) {
+      searchQueries.push(queryWithoutApostrophe);
+    }
+
     const allResults = [];
     const seenOfficerIds = new Set();
 
-    // Fetch multiple pages to ensure we get all matches
-    let startIndex = 0;
-    const itemsPerPage = 100;
-    const maxPages = 5; // Limit to avoid too many API calls
+    // Search each query variation
+    for (const searchQuery of searchQueries) {
+      let startIndex = 0;
+      const itemsPerPage = 100;
+      const maxPages = 3; // Limit per query to avoid too many API calls
 
-    for (let page = 0; page < maxPages; page++) {
-      try {
-        const data = await fetchFromCompaniesHouse(
-          `/search/officers?q=${encodeURIComponent(searchQuery)}&items_per_page=${itemsPerPage}&start_index=${startIndex}`
-        );
+      for (let page = 0; page < maxPages; page++) {
+        try {
+          const data = await fetchFromCompaniesHouse(
+            `/search/officers?q=${encodeURIComponent(searchQuery)}&items_per_page=${itemsPerPage}&start_index=${startIndex}`
+          );
 
-        if (!data.items || data.items.length === 0) break;
+          if (!data.items || data.items.length === 0) break;
 
-        for (const officer of data.items) {
-          // Extract officer ID from links
-          const officerId = officer.links?.self?.replace('/officers/', '').replace('/appointments', '') || null;
+          for (const officer of data.items) {
+            // Extract officer ID from links
+            const officerId = officer.links?.self?.replace('/officers/', '').replace('/appointments', '') || null;
 
-          // Skip if we've already seen this officer
-          if (officerId && seenOfficerIds.has(officerId)) continue;
-          if (officerId) seenOfficerIds.add(officerId);
+            // Skip if we've already seen this officer
+            if (officerId && seenOfficerIds.has(officerId)) continue;
+            if (officerId) seenOfficerIds.add(officerId);
 
-          // Check if first name and surname match (ignore middle names)
-          if (!nameMatches(officer.title)) continue;
+            // Check if first name and surname match (ignore middle names)
+            if (!nameMatches(officer.title)) continue;
 
-          // Filter by DOB if provided
-          if (dobMonth && dobYear) {
-            const dob = officer.date_of_birth;
-            if (!dob || dob.month !== parseInt(dobMonth) || dob.year !== parseInt(dobYear)) {
-              continue;
+            // Filter by DOB if provided
+            if (dobMonth && dobYear) {
+              const dob = officer.date_of_birth;
+              if (!dob || dob.month !== parseInt(dobMonth) || dob.year !== parseInt(dobYear)) {
+                continue;
+              }
             }
+
+            allResults.push({
+              ...officer,
+              officer_id: officerId
+            });
           }
 
-          allResults.push({
-            ...officer,
-            officer_id: officerId
-          });
+          // Check if we've reached the end
+          startIndex += itemsPerPage;
+          if (startIndex >= (data.total_results || 0)) break;
+        } catch (e) {
+          console.log(`Search failed: ${e.message}`);
+          break;
         }
-
-        // Check if we've reached the end
-        startIndex += itemsPerPage;
-        if (startIndex >= (data.total_results || 0)) break;
-      } catch (e) {
-        console.log(`Search page ${page} failed: ${e.message}`);
-        break;
       }
     }
 
