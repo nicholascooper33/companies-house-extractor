@@ -1014,7 +1014,7 @@ function CrossDirectorshipSearch({ onBack }) {
             <form onSubmit={handleSearch} className="space-y-4">
               <div>
                 <label htmlFor="officer-search" className="block text-sm font-medium text-gray-700 mb-1">Director name</label>
-                <input id="officer-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g., Nicholas Cooper" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" autoFocus />
+                <input id="officer-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" autoFocus />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
