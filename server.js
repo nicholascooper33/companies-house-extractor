@@ -67,11 +67,39 @@ app.get('/api/company/:companyNumber', async (req, res) => {
   }
 });
 
-// Get company officers
+// Get company officers (paginated to fetch up to 1000)
 app.get('/api/company/:companyNumber/officers', async (req, res) => {
   try {
-    const data = await fetchFromCompaniesHouse(`/company/${req.params.companyNumber}/officers`);
-    res.json(data);
+    const maxOfficers = 1000;
+    const pageSize = 100; // Companies House API max per request
+    let allItems = [];
+    let startIndex = 0;
+    let totalResults = 0;
+
+    // Fetch first page to get total count
+    const firstPage = await fetchFromCompaniesHouse(
+      `/company/${req.params.companyNumber}/officers?items_per_page=${pageSize}&start_index=0`
+    );
+
+    allItems = firstPage.items || [];
+    totalResults = firstPage.total_results || allItems.length;
+
+    // Fetch remaining pages if needed (up to maxOfficers)
+    while (allItems.length < totalResults && allItems.length < maxOfficers) {
+      startIndex += pageSize;
+      const nextPage = await fetchFromCompaniesHouse(
+        `/company/${req.params.companyNumber}/officers?items_per_page=${pageSize}&start_index=${startIndex}`
+      );
+      if (!nextPage.items || nextPage.items.length === 0) break;
+      allItems = allItems.concat(nextPage.items);
+    }
+
+    res.json({
+      ...firstPage,
+      items: allItems.slice(0, maxOfficers),
+      items_per_page: allItems.length,
+      total_results: totalResults
+    });
   } catch (error) {
     console.error('Officers error:', error.message);
     res.status(500).json({ error: error.message });
