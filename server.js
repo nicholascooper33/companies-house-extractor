@@ -458,16 +458,32 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
       let title = filing.description || 'Filing';
       let skip = false;
 
-      // Categorize filings
-      if (description.includes('accounts') || description.includes('account')) {
+      // Categorize filings - be specific to avoid catching ancillary documents
+      if (description.includes('accounts-with-accounts-type') ||
+          description.includes('full-accounts') ||
+          description.includes('small-company-accounts') ||
+          description.includes('micro-entity-accounts') ||
+          description.includes('dormant-accounts') ||
+          description.includes('group-accounts') ||
+          description.includes('unaudited-accounts')) {
+        // Actual accounts filings only
         category = 'Accounts';
         title = 'Accounts Filed';
         if (filing.description_values?.made_up_date) {
           title += ` (to ${filing.description_values.made_up_date})`;
         }
-      } else if (description.includes('confirmation-statement') || description.includes('annual-return')) {
+      } else if (description.includes('change-account-reference-date') || description.includes('accounting-reference')) {
+        // Accounting reference date changes - skip as less important
+        skip = true;
+      } else if (description.includes('confirmation-statement')) {
         category = 'Confirmation';
-        title = description.includes('annual-return') ? 'Annual Return Filed' : 'Confirmation Statement Filed';
+        title = 'Confirmation Statement Filed';
+        if (filing.description_values?.confirmation_statement_date) {
+          title += ` (${filing.description_values.confirmation_statement_date})`;
+        }
+      } else if (description.includes('annual-return')) {
+        category = 'Confirmation';
+        title = 'Annual Return Filed';
       } else if (description.includes('incorporation')) {
         skip = true; // Skip, we already have incorporation event
       } else if (description.includes('officer') || description.includes('director') || description.includes('secretary') || description.includes('appoint') || description.includes('terminat') || description.includes('resign')) {
@@ -475,15 +491,18 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
       } else if (description.includes('registered-office') || description.includes('sail-address')) {
         category = 'Address';
         title = 'Registered Office Change';
-      } else if (description.includes('resolution') || description.includes('capital') || description.includes('share') || description.includes('statement-of-capital')) {
+      } else if (description.includes('statement-of-capital')) {
         category = 'Capital';
-        title = 'Capital Statement';
+        title = 'Statement of Capital';
         if (filing.description_values?.capital?.[0]?.figure) {
           title = `Capital: £${filing.description_values.capital[0].figure}`;
         }
+      } else if (description.includes('resolution') && (description.includes('capital') || description.includes('share'))) {
+        category = 'Capital';
+        title = 'Capital Resolution';
       } else if (description.includes('charge') || description.includes('mortgage')) {
         skip = true; // Skip charge filings - we get this from charges endpoint
-      } else if (description.includes('liquidation') || description.includes('insolvency') || description.includes('administration') || description.includes('winding-up')) {
+      } else if (description.includes('liquidation') || description.includes('insolvency') || description.includes('administration') || description.includes('winding-up') || description.includes('receiver') || description.includes('voluntary-arrangement')) {
         category = 'Insolvency';
         title = formatFilingDescription(description, filing.description_values);
       } else if (description.includes('change-of-name')) {
@@ -494,6 +513,9 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
         }
       } else if (description.includes('psc') || description.includes('persons-with-significant-control')) {
         skip = true; // Skip PSC filings - we get this from PSC endpoint
+      } else if (description.includes('memorandum') || description.includes('articles') || description.includes('constitution')) {
+        category = 'Company';
+        title = 'Articles/Constitution Change';
       } else {
         // Skip generic/unclear filings
         skip = true;
