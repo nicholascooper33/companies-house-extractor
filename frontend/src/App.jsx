@@ -292,8 +292,9 @@ function generateStructureChartSVG(ownershipChain, companyName) {
   }
 
   const yPositionPerDepth = {}
+  // Reverse the order: highest depth at top, depth 0 at bottom
+  const depths = Object.keys(maxHeightPerDepth).map(Number).sort((a, b) => b - a) // Sort descending
   let currentY = BOX_PADDING + 40
-  const depths = Object.keys(maxHeightPerDepth).map(Number).sort((a, b) => a - b)
   for (const depth of depths) {
     yPositionPerDepth[depth] = currentY
     currentY += maxHeightPerDepth[depth] + VERTICAL_GAP
@@ -327,7 +328,8 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     const nodeType = depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual')
     nodes.push({ id: nodeId, x, y, nameLines, number, type: nodeType, natures: formatNatures(natures), height })
     if (parentId !== null) {
-      connections.push({ from: { x: parentX, y: parentY + parentHeight }, to: { x, y } })
+      // Connect upward: from this node (bottom) to parent (top)
+      connections.push({ from: { x, y: y + height }, to: { x: parentX, y: parentY } })
     }
     if (node.pscs && node.pscs.length > 0) {
       let childXOffset = xOffset
@@ -346,7 +348,8 @@ function generateStructureChartSVG(ownershipChain, companyName) {
           const pscNumber = psc.identification?.registration_number || ''
           const pscNatures = psc.natures_of_control || []
           nodes.push({ id: childId, x: childX, y: childY, nameLines: wrapText(pscName, CHARS_PER_LINE), number: pscNumber, type: isCorporate ? 'corporate' : 'individual', natures: formatNatures(pscNatures), height: childHeight })
-          connections.push({ from: { x, y: y + height }, to: { x: childX, y: childY } })
+          // Connect upward: from parent (top edge) to child/owner (bottom edge)
+          connections.push({ from: { x, y }, to: { x: childX, y: childY + childHeight } })
           childXOffset += BOX_WIDTH + HORIZONTAL_GAP
         }
       }
