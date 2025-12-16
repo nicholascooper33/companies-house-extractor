@@ -473,8 +473,8 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
           title += ` (to ${filing.description_values.made_up_date})`;
         }
       } else if (description.includes('change-account-reference-date') || description.includes('accounting-reference')) {
-        // Accounting reference date changes - skip as less important
-        skip = true;
+        category = 'Accounts';
+        title = 'Accounting Reference Date Change';
       } else if (description.includes('confirmation-statement')) {
         category = 'Confirmation';
         title = 'Confirmation Statement Filed';
