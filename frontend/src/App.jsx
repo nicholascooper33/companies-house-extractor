@@ -1271,6 +1271,14 @@ function CompanyTimeline({ onBack }) {
     return icons[category] || '📄'
   }
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'Unknown'
+    const parts = dateStr.split('-')
+    if (parts.length !== 3) return dateStr
+    const [year, month, day] = parts
+    return `${day}-${month}-${year.slice(-2)}`
+  }
+
   const downloadCSV = () => {
     if (!timeline || !filteredEvents.length) return
     const lines = ['Date,Category,Event,Details']
@@ -1434,9 +1442,15 @@ function CompanyTimeline({ onBack }) {
                           {event.description && event.description !== event.title && (
                             <p className="text-sm mt-1 opacity-80">{event.description}</p>
                           )}
+                          {event.documentUrl && (
+                            <a href={event.documentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs mt-2 text-blue-600 hover:text-blue-800 hover:underline">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                              View filing
+                            </a>
+                          )}
                         </div>
                         <div className="text-sm font-medium whitespace-nowrap">
-                          {event.date || 'Unknown date'}
+                          {formatDate(event.date)}
                         </div>
                       </div>
                     </div>

@@ -456,6 +456,7 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
 
       let category = 'Filing';
       let title = filing.description || 'Filing';
+      let skip = false;
 
       // Categorize filings
       if (description.includes('accounts') || description.includes('account')) {
@@ -468,20 +469,21 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
         category = 'Confirmation';
         title = description.includes('annual-return') ? 'Annual Return Filed' : 'Confirmation Statement Filed';
       } else if (description.includes('incorporation')) {
-        continue; // Skip, we already have incorporation event
-      } else if (description.includes('officer') || description.includes('director') || description.includes('secretary')) {
-        category = 'Officers';
-        title = formatFilingDescription(description, filing.description_values);
-      } else if (description.includes('registered-office') || description.includes('address')) {
+        skip = true; // Skip, we already have incorporation event
+      } else if (description.includes('officer') || description.includes('director') || description.includes('secretary') || description.includes('appoint') || description.includes('terminat') || description.includes('resign')) {
+        skip = true; // Skip officer filings - we get this from officers endpoint
+      } else if (description.includes('registered-office') || description.includes('sail-address')) {
         category = 'Address';
-        title = 'Address Change';
-      } else if (description.includes('resolution') || description.includes('capital')) {
+        title = 'Registered Office Change';
+      } else if (description.includes('resolution') || description.includes('capital') || description.includes('share') || description.includes('statement-of-capital')) {
         category = 'Capital';
-        title = formatFilingDescription(description, filing.description_values);
-      } else if (description.includes('charge')) {
-        category = 'Charges';
-        title = formatFilingDescription(description, filing.description_values);
-      } else if (description.includes('liquidation') || description.includes('insolvency') || description.includes('administration')) {
+        title = 'Capital Statement';
+        if (filing.description_values?.capital?.[0]?.figure) {
+          title = `Capital: £${filing.description_values.capital[0].figure}`;
+        }
+      } else if (description.includes('charge') || description.includes('mortgage')) {
+        skip = true; // Skip charge filings - we get this from charges endpoint
+      } else if (description.includes('liquidation') || description.includes('insolvency') || description.includes('administration') || description.includes('winding-up')) {
         category = 'Insolvency';
         title = formatFilingDescription(description, filing.description_values);
       } else if (description.includes('change-of-name')) {
@@ -490,8 +492,19 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
         if (filing.description_values?.new_company_name) {
           title = `Name changed to ${filing.description_values.new_company_name}`;
         }
+      } else if (description.includes('psc') || description.includes('persons-with-significant-control')) {
+        skip = true; // Skip PSC filings - we get this from PSC endpoint
       } else {
-        title = formatFilingDescription(description, filing.description_values);
+        // Skip generic/unclear filings
+        skip = true;
+      }
+
+      if (skip) continue;
+
+      // Build document link if available
+      let documentUrl = null;
+      if (filing.links?.document_metadata) {
+        documentUrl = `https://find-and-update.company-information.service.gov.uk${filing.links.self || ''}/document`;
       }
 
       events.push({
@@ -499,7 +512,7 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
         type: 'filing',
         category,
         title,
-        description: filing.description,
+        documentUrl,
         filingType: filing.type
       });
     }
