@@ -48,6 +48,12 @@ const api = {
     const res = await fetch(`/api/officers/find-related?${params}`)
     if (!res.ok) throw new Error('Failed to find related officers')
     return res.json()
+  },
+  // Timeline API
+  getTimeline: async (companyNumber) => {
+    const res = await fetch(`/api/company/${companyNumber}/timeline`)
+    if (!res.ok) throw new Error('Failed to fetch timeline')
+    return res.json()
   }
 }
 
@@ -466,6 +472,17 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'purple'
+    },
+    {
+      id: 'company-timeline',
+      name: 'Company Timeline',
+      description: 'View a chronological history of key events for any company: incorporations, officer changes, filings, charges, PSC notifications, and more.',
+      icon: (
+        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      color: 'cyan'
     }
   ]
 
@@ -481,6 +498,12 @@ function ModuleSelector({ onSelectModule }) {
       border: 'border-purple-200 hover:border-purple-400',
       icon: 'text-purple-600',
       title: 'text-purple-900'
+    },
+    cyan: {
+      bg: 'bg-cyan-50 hover:bg-cyan-100',
+      border: 'border-cyan-200 hover:border-cyan-400',
+      icon: 'text-cyan-600',
+      title: 'text-cyan-900'
     }
   }
 
@@ -1157,6 +1180,287 @@ function CrossDirectorshipSearch({ onBack }) {
 }
 
 // ============================================
+// Company Timeline Component
+// ============================================
+function CompanyTimeline({ onBack }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [selectedCompany, setSelectedCompany] = useState(null)
+  const [timeline, setTimeline] = useState(null)
+  const [timelineLoading, setTimelineLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [filter, setFilter] = useState('all')
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    setSelectedCompany(null)
+    setTimeline(null)
+    try {
+      const data = await api.search(searchQuery)
+      setSearchResults(data.items || [])
+    } catch (err) {
+      setError('Search failed. Please try again.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const handleSelectCompany = async (company) => {
+    setSelectedCompany(company)
+    setTimelineLoading(true)
+    setError(null)
+    try {
+      const data = await api.getTimeline(company.company_number)
+      setTimeline(data)
+    } catch (err) {
+      setError('Failed to load timeline. Please try again.')
+      console.error(err)
+    } finally {
+      setTimelineLoading(false)
+    }
+  }
+
+  const handleReset = () => {
+    setSearchQuery('')
+    setSearchResults(null)
+    setSelectedCompany(null)
+    setTimeline(null)
+    setError(null)
+    setFilter('all')
+  }
+
+  const categories = ['all', 'Company', 'Officers', 'Accounts', 'Confirmation', 'Charges', 'PSC', 'Address', 'Capital', 'Insolvency', 'Filing']
+
+  const filteredEvents = timeline?.events?.filter(e => filter === 'all' || e.category === filter) || []
+
+  const getCategoryColor = (category) => {
+    const colors = {
+      'Company': 'bg-blue-100 text-blue-800 border-blue-300',
+      'Officers': 'bg-purple-100 text-purple-800 border-purple-300',
+      'Accounts': 'bg-green-100 text-green-800 border-green-300',
+      'Confirmation': 'bg-teal-100 text-teal-800 border-teal-300',
+      'Charges': 'bg-red-100 text-red-800 border-red-300',
+      'PSC': 'bg-orange-100 text-orange-800 border-orange-300',
+      'Address': 'bg-yellow-100 text-yellow-800 border-yellow-300',
+      'Capital': 'bg-indigo-100 text-indigo-800 border-indigo-300',
+      'Insolvency': 'bg-rose-100 text-rose-800 border-rose-300',
+      'Filing': 'bg-gray-100 text-gray-800 border-gray-300'
+    }
+    return colors[category] || colors['Filing']
+  }
+
+  const getEventIcon = (category) => {
+    const icons = {
+      'Company': '🏢',
+      'Officers': '👤',
+      'Accounts': '📊',
+      'Confirmation': '✓',
+      'Charges': '⚡',
+      'PSC': '👥',
+      'Address': '📍',
+      'Capital': '💰',
+      'Insolvency': '⚠️',
+      'Filing': '📄'
+    }
+    return icons[category] || '📄'
+  }
+
+  const downloadCSV = () => {
+    if (!timeline || !filteredEvents.length) return
+    const lines = ['Date,Category,Event,Details']
+    for (const event of filteredEvents) {
+      lines.push([
+        event.date || '',
+        event.category || '',
+        `"${(event.title || '').replace(/"/g, '""')}"`,
+        `"${(event.description || '').replace(/"/g, '""')}"`
+      ].join(','))
+    }
+    const csv = lines.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${timeline.company?.name || 'company'}_timeline_${new Date().toISOString().split('T')[0]}.csv`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+          Back to Modules
+        </button>
+        {selectedCompany && (
+          <button onClick={handleReset} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">New Search</button>
+        )}
+      </div>
+
+      {/* Title */}
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Company Timeline</h1>
+        <p className="text-gray-600">View a chronological history of key events for any UK company</p>
+      </div>
+
+      {error && (<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+
+      {/* Search */}
+      {!selectedCompany && (
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Company</h2>
+            <form onSubmit={handleSearch} className="space-y-4">
+              <div>
+                <label htmlFor="timeline-search" className="block text-sm font-medium text-gray-700 mb-1">Company name or number</label>
+                <input id="timeline-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors" autoFocus />
+              </div>
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-3 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-700 focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
+            </form>
+          </div>
+
+          {/* Search Results */}
+          {searchResults && searchResults.length > 0 && (
+            <div className="mt-6 bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Select a Company</h3>
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {searchResults.map((company, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSelectCompany(company)}
+                    className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-cyan-400 hover:bg-cyan-50 transition-all"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-gray-900">{company.title}</p>
+                        <p className="text-sm text-gray-600">{company.company_number} • {company.company_status}</p>
+                        {company.address_snippet && <p className="text-sm text-gray-500 mt-1">{company.address_snippet}</p>}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {searchResults && searchResults.length === 0 && (
+            <div className="mt-6 bg-white rounded-xl shadow-lg p-8 text-center text-gray-500">
+              No companies found matching "{searchQuery}"
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading */}
+      {timelineLoading && (
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-cyan-500 border-t-transparent mb-4"></div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Building Timeline</h2>
+            <p className="text-gray-600">Gathering company history from Companies House...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Timeline Display */}
+      {timeline && !timelineLoading && (
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            {/* Company Header */}
+            <div className="flex items-center justify-between mb-6 pb-6 border-b">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">{timeline.company?.name}</h2>
+                <p className="text-gray-600">{timeline.company?.number} • {timeline.company?.status?.replace(/-/g, ' ')}</p>
+              </div>
+              <button onClick={downloadCSV} disabled={!filteredEvents.length} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Download CSV
+              </button>
+            </div>
+
+            {/* Warning */}
+            <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-700">⚠️ This timeline may be incomplete. For complete and authoritative information, please refer to the official <a href={`https://find-and-update.company-information.service.gov.uk/company/${timeline.company?.number}`} target="_blank" rel="noopener noreferrer" className="underline font-medium">Companies House listing</a>.</p>
+            </div>
+
+            {/* Filter */}
+            <div className="mb-6">
+              <div className="flex flex-wrap gap-2">
+                {categories.map(cat => {
+                  const count = cat === 'all' ? timeline.events?.length : timeline.events?.filter(e => e.category === cat).length
+                  if (cat !== 'all' && count === 0) return null
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setFilter(cat)}
+                      className={`px-3 py-1 text-sm rounded-full border transition-colors ${filter === cat ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-gray-600 border-gray-300 hover:border-cyan-400'}`}
+                    >
+                      {cat === 'all' ? 'All' : cat} ({count})
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div className="relative">
+              {/* Vertical line */}
+              <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+
+              {/* Events */}
+              <div className="space-y-4">
+                {filteredEvents.map((event, idx) => (
+                  <div key={idx} className="relative pl-16">
+                    {/* Dot */}
+                    <div className="absolute left-4 w-5 h-5 rounded-full bg-white border-2 border-gray-300 flex items-center justify-center text-xs">
+                      {getEventIcon(event.category)}
+                    </div>
+
+                    {/* Event card */}
+                    <div className={`p-4 rounded-lg border ${getCategoryColor(event.category)}`}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-grow">
+                          <p className="font-semibold">{event.title}</p>
+                          {event.description && event.description !== event.title && (
+                            <p className="text-sm mt-1 opacity-80">{event.description}</p>
+                          )}
+                        </div>
+                        <div className="text-sm font-medium whitespace-nowrap">
+                          {event.date || 'Unknown date'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {filteredEvents.length === 0 && (
+                <p className="text-gray-500 text-center py-8">No events found for this filter.</p>
+              )}
+            </div>
+
+            {/* Summary */}
+            <div className="mt-8 pt-6 border-t text-center text-sm text-gray-500">
+              Showing {filteredEvents.length} of {timeline.events?.length} events
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================
 // Main App Component
 // ============================================
 function App() {
@@ -1193,6 +1497,10 @@ function App() {
 
         {selectedModule === 'cross-directorship' && (
           <CrossDirectorshipSearch onBack={() => setSelectedModule(null)} />
+        )}
+
+        {selectedModule === 'company-timeline' && (
+          <CompanyTimeline onBack={() => setSelectedModule(null)} />
         )}
       </main>
 

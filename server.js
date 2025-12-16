@@ -408,6 +408,207 @@ app.get('/api/officers/find-related', async (req, res) => {
   }
 });
 
+// Company Timeline - aggregate key events
+app.get('/api/company/:companyNumber/timeline', async (req, res) => {
+  try {
+    const { companyNumber } = req.params;
+    const events = [];
+
+    // Fetch all data sources in parallel
+    const [companyData, filingHistory, officers, charges, pscs] = await Promise.all([
+      fetchFromCompaniesHouse(`/company/${companyNumber}`).catch(() => null),
+      fetchFromCompaniesHouse(`/company/${companyNumber}/filing-history?items_per_page=100`).catch(() => ({ items: [] })),
+      fetchFromCompaniesHouse(`/company/${companyNumber}/officers?items_per_page=100`).catch(() => ({ items: [] })),
+      fetchFromCompaniesHouse(`/company/${companyNumber}/charges`).catch(() => ({ items: [] })),
+      fetchFromCompaniesHouse(`/company/${companyNumber}/persons-with-significant-control`).catch(() => ({ items: [] }))
+    ]);
+
+    if (!companyData) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    // Company incorporation
+    if (companyData.date_of_creation) {
+      events.push({
+        date: companyData.date_of_creation,
+        type: 'incorporation',
+        category: 'Company',
+        title: 'Company Incorporated',
+        description: `${companyData.company_name} incorporated as ${companyData.type?.replace(/-/g, ' ') || 'company'}`
+      });
+    }
+
+    // Company status changes (dissolution, restoration, etc.)
+    if (companyData.date_of_cessation) {
+      events.push({
+        date: companyData.date_of_cessation,
+        type: 'status_change',
+        category: 'Company',
+        title: 'Company Dissolved',
+        description: `Company status: ${companyData.company_status?.replace(/-/g, ' ') || 'dissolved'}`
+      });
+    }
+
+    // Filing history events
+    for (const filing of (filingHistory.items || [])) {
+      const filingType = filing.type || '';
+      const description = filing.description || '';
+
+      let category = 'Filing';
+      let title = filing.description || 'Filing';
+
+      // Categorize filings
+      if (description.includes('accounts') || description.includes('account')) {
+        category = 'Accounts';
+        title = 'Accounts Filed';
+        if (filing.description_values?.made_up_date) {
+          title += ` (to ${filing.description_values.made_up_date})`;
+        }
+      } else if (description.includes('confirmation-statement') || description.includes('annual-return')) {
+        category = 'Confirmation';
+        title = description.includes('annual-return') ? 'Annual Return Filed' : 'Confirmation Statement Filed';
+      } else if (description.includes('incorporation')) {
+        continue; // Skip, we already have incorporation event
+      } else if (description.includes('officer') || description.includes('director') || description.includes('secretary')) {
+        category = 'Officers';
+        title = formatFilingDescription(description, filing.description_values);
+      } else if (description.includes('registered-office') || description.includes('address')) {
+        category = 'Address';
+        title = 'Address Change';
+      } else if (description.includes('resolution') || description.includes('capital')) {
+        category = 'Capital';
+        title = formatFilingDescription(description, filing.description_values);
+      } else if (description.includes('charge')) {
+        category = 'Charges';
+        title = formatFilingDescription(description, filing.description_values);
+      } else if (description.includes('liquidation') || description.includes('insolvency') || description.includes('administration')) {
+        category = 'Insolvency';
+        title = formatFilingDescription(description, filing.description_values);
+      } else if (description.includes('change-of-name')) {
+        category = 'Company';
+        title = 'Name Change';
+        if (filing.description_values?.new_company_name) {
+          title = `Name changed to ${filing.description_values.new_company_name}`;
+        }
+      } else {
+        title = formatFilingDescription(description, filing.description_values);
+      }
+
+      events.push({
+        date: filing.date,
+        type: 'filing',
+        category,
+        title,
+        description: filing.description,
+        filingType: filing.type
+      });
+    }
+
+    // Officer appointments and resignations
+    for (const officer of (officers.items || [])) {
+      const name = officer.name || 'Unknown';
+      const role = officer.officer_role?.replace(/-/g, ' ') || 'officer';
+
+      if (officer.appointed_on) {
+        events.push({
+          date: officer.appointed_on,
+          type: 'officer_appointed',
+          category: 'Officers',
+          title: `${role.charAt(0).toUpperCase() + role.slice(1)} Appointed`,
+          description: name
+        });
+      }
+
+      if (officer.resigned_on) {
+        events.push({
+          date: officer.resigned_on,
+          type: 'officer_resigned',
+          category: 'Officers',
+          title: `${role.charAt(0).toUpperCase() + role.slice(1)} Resigned`,
+          description: name
+        });
+      }
+    }
+
+    // Charges
+    for (const charge of (charges.items || [])) {
+      if (charge.created_on) {
+        events.push({
+          date: charge.created_on,
+          type: 'charge_created',
+          category: 'Charges',
+          title: 'Charge Created',
+          description: charge.persons_entitled?.[0]?.name || charge.classification?.description || 'Security registered'
+        });
+      }
+      if (charge.satisfied_on) {
+        events.push({
+          date: charge.satisfied_on,
+          type: 'charge_satisfied',
+          category: 'Charges',
+          title: 'Charge Satisfied',
+          description: charge.persons_entitled?.[0]?.name || 'Security released'
+        });
+      }
+    }
+
+    // PSC notifications
+    for (const psc of (pscs.items || [])) {
+      if (psc.notified_on) {
+        const pscName = psc.name || psc.name_elements?.forename + ' ' + psc.name_elements?.surname || 'PSC';
+        events.push({
+          date: psc.notified_on,
+          type: 'psc_notified',
+          category: 'PSC',
+          title: 'PSC Notified',
+          description: pscName
+        });
+      }
+      if (psc.ceased_on) {
+        const pscName = psc.name || 'PSC';
+        events.push({
+          date: psc.ceased_on,
+          type: 'psc_ceased',
+          category: 'PSC',
+          title: 'PSC Ceased',
+          description: pscName
+        });
+      }
+    }
+
+    // Sort by date descending (most recent first)
+    events.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    res.json({
+      company: {
+        name: companyData.company_name,
+        number: companyData.company_number,
+        status: companyData.company_status,
+        type: companyData.type
+      },
+      events,
+      total_events: events.length
+    });
+  } catch (error) {
+    console.error('Timeline error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper to format filing descriptions
+function formatFilingDescription(description, values) {
+  if (!description) return 'Filing';
+  let result = description.replace(/-/g, ' ');
+  // Replace placeholders with values
+  if (values) {
+    for (const [key, value] of Object.entries(values)) {
+      result = result.replace(`{${key}}`, value);
+    }
+  }
+  // Capitalize first letter
+  return result.charAt(0).toUpperCase() + result.slice(1);
+}
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({
