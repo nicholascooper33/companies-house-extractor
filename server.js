@@ -567,13 +567,19 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
 
     // Charges
     for (const charge of (charges.items || [])) {
+      // Build link to charge page on Companies House (contains documents)
+      const chargeUrl = charge.links?.self
+        ? `https://find-and-update.company-information.service.gov.uk${charge.links.self}`
+        : null;
+
       if (charge.created_on) {
         events.push({
           date: charge.created_on,
           type: 'charge_created',
           category: 'Charges',
           title: 'Charge Created',
-          description: charge.persons_entitled?.[0]?.name || charge.classification?.description || 'Security registered'
+          description: charge.persons_entitled?.[0]?.name || charge.classification?.description || 'Security registered',
+          documentUrl: chargeUrl
         });
       }
       if (charge.satisfied_on) {
@@ -582,7 +588,8 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
           type: 'charge_satisfied',
           category: 'Charges',
           title: 'Charge Satisfied',
-          description: charge.persons_entitled?.[0]?.name || 'Security released'
+          description: charge.persons_entitled?.[0]?.name || 'Security released',
+          documentUrl: chargeUrl
         });
       }
     }
