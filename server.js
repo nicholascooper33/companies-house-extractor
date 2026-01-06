@@ -212,6 +212,15 @@ async function traceOwnershipChain(companyNumber, depth = 0, visited = new Set()
 
     return result;
   } catch (error) {
+    // If company not found (404), it's likely a foreign company - return clean result
+    if (error.message.includes('404') || error.message.includes('Not Found')) {
+      console.log(`Company ${companyNumber} not found - likely foreign/non-UK registered`);
+      return {
+        company_number: companyNumber,
+        not_found: true,
+        depth: depth
+      };
+    }
     console.error(`Error tracing company ${companyNumber}:`, error.message);
     return {
       company_number: companyNumber,

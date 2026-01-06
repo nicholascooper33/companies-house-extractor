@@ -678,7 +678,22 @@ function PersonsWithSignificantControl({ pscs }) {
 function OwnershipChainNode({ node, isRoot = false }) {
   if (!node) return null
   const hasError = node.error
+  const notFound = node.not_found
   const hasPSCs = node.pscs && node.pscs.length > 0
+
+  // For not_found nodes (foreign companies), show a clean grey box instead of error
+  if (notFound) {
+    return (
+      <div className={`relative ${!isRoot ? 'ml-8 mt-4' : ''}`}>
+        {!isRoot && (<div className="absolute -left-6 top-0 h-full"><div className="absolute top-6 left-0 w-6 border-t-2 border-gray-300"></div><div className="absolute top-0 left-0 h-6 border-l-2 border-gray-300"></div></div>)}
+        <div className="rounded-lg p-4 border-2 border-gray-400 bg-gray-100">
+          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-gray-500"></div><p className="font-semibold text-gray-700">{node.company_number}</p></div>
+          <p className="text-sm text-gray-500 ml-5">Not on UK register (foreign/non-UK company)</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`relative ${!isRoot ? 'ml-8 mt-4' : ''}`}>
       {!isRoot && (<div className="absolute -left-6 top-0 h-full"><div className="absolute top-6 left-0 w-6 border-t-2 border-gray-300"></div><div className="absolute top-0 left-0 h-6 border-l-2 border-gray-300"></div></div>)}
