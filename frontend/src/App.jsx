@@ -265,6 +265,8 @@ function generateStructureChartSVG(ownershipChain, companyName) {
 
   function collectNodes(node, depth, isCompany = true) {
     if (!node) return
+    // Skip not_found nodes (foreign companies) - the PSC info is already shown
+    if (node.not_found) return
     const name = node.company_name || node.name || node.company_number || 'Unknown'
     const number = node.company_number || node.identification?.registration_number || ''
     const natures = node.natures_of_control || []
@@ -273,7 +275,7 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     nodeData.push({ depth, name, nameLines, number, natures: formatNatures(natures), type: depth === 0 ? 'target' : (isCompany ? 'corporate' : 'individual'), height, isCompany })
     if (node.pscs) {
       for (const psc of node.pscs) {
-        if (psc.parent_chain) {
+        if (psc.parent_chain && !psc.parent_chain.not_found) {
           collectNodes(psc.parent_chain, depth + 1, true)
         } else {
           const pscName = psc.name || 'Unknown'
@@ -310,17 +312,17 @@ function generateStructureChartSVG(ownershipChain, companyName) {
   const connections = []
 
   function getSubtreeWidth(node) {
-    if (!node || !node.pscs || node.pscs.length === 0) return 1
+    if (!node || node.not_found || !node.pscs || node.pscs.length === 0) return 1
     let width = 0
     for (const psc of node.pscs) {
-      if (psc.parent_chain) width += getSubtreeWidth(psc.parent_chain)
+      if (psc.parent_chain && !psc.parent_chain.not_found) width += getSubtreeWidth(psc.parent_chain)
       else width += 1
     }
     return Math.max(width, 1)
   }
 
   function layoutNode(node, depth, xOffset, parentId = null, parentX = null, parentY = null, parentHeight = 0, isCompany = true) {
-    if (!node) return xOffset
+    if (!node || node.not_found) return xOffset
     const subtreeWidth = getSubtreeWidth(node)
     const nodeWidth = subtreeWidth * (BOX_WIDTH + HORIZONTAL_GAP) - HORIZONTAL_GAP
     const x = xOffset + nodeWidth / 2
@@ -340,7 +342,7 @@ function generateStructureChartSVG(ownershipChain, companyName) {
     if (node.pscs && node.pscs.length > 0) {
       let childXOffset = xOffset
       for (const psc of node.pscs) {
-        if (psc.parent_chain) {
+        if (psc.parent_chain && !psc.parent_chain.not_found) {
           childXOffset = layoutNode(psc.parent_chain, depth + 1, childXOffset, nodeId, x, y, height, true)
         } else {
           const childSubtreeWidth = 1
