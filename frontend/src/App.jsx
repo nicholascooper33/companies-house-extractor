@@ -474,18 +474,8 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'purple'
-    },
-    {
-      id: 'company-timeline',
-      name: 'Company Timeline',
-      description: 'View a chronological history of key events for any company: incorporations, officer changes, filings, charges, PSC notifications, and more.',
-      icon: (
-        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      color: 'cyan'
     }
+    // Company Timeline module hidden for now - code retained
   ]
 
   const colorClasses = {
@@ -1054,7 +1044,7 @@ function CrossDirectorshipSearch({ onBack }) {
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-xl shadow-lg p-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Director</h2>
-            <p className="text-gray-600 mb-6">Enter the director's name. Adding date of birth helps filter results for common names.</p>
+            <p className="text-gray-600 mb-6">Enter the director's name. Add the date of birth to filter for a specific director.</p>
             <form onSubmit={handleSearch} className="space-y-4">
               <div>
                 <label htmlFor="officer-search" className="block text-sm font-medium text-gray-700 mb-1">Director name</label>
@@ -1099,6 +1089,11 @@ function CrossDirectorshipSearch({ onBack }) {
               Found {searchResults.length} record{searchResults.length !== 1 ? 's' : ''}{dobMonth && dobYear ? ` for directors born in ${monthNames[parseInt(dobMonth) - 1]} ${dobYear}` : ` matching "${searchQuery}"`}.
               All records are selected by default. Uncheck any that don't belong to the person you're searching for.
             </p>
+
+            <div className="flex gap-2 mb-4">
+              <button onClick={() => setSelectedOfficerIds(new Set(searchResults.map(o => o.officer_id)))} className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors">Select all</button>
+              <button onClick={() => setSelectedOfficerIds(new Set())} className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Unselect all</button>
+            </div>
 
             <div className="space-y-3 max-h-[400px] overflow-y-auto mb-6">
               {searchResults.map((officer, idx) => {
