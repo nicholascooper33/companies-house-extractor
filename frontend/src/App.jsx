@@ -474,6 +474,17 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'purple'
+    },
+    {
+      id: 'active-directors',
+      name: 'Active Directors',
+      description: 'Look up a company and view all active directors and officers. Download the list as CSV or Word document.',
+      icon: (
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+      ),
+      color: 'green'
     }
     // Company Timeline module hidden for now - code retained
   ]
@@ -488,6 +499,11 @@ function ModuleSelector({ onSelectModule }) {
       bg: 'bg-purple-100/80 hover:bg-purple-100',
       icon: 'text-purple-600',
       title: 'text-purple-900'
+    },
+    green: {
+      bg: 'bg-green-100/80 hover:bg-green-100',
+      icon: 'text-green-600',
+      title: 'text-green-900'
     },
     cyan: {
       bg: 'bg-cyan-100/80 hover:bg-cyan-100',
@@ -851,9 +867,201 @@ function PSCExtractor({ onBack }) {
             <>
               {error && (<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
               <CompanyProfile company={companyData} />
-              <Officers officers={officers} />
               <PersonsWithSignificantControl pscs={pscs} />
               {(ownershipChain || chainLoading) && (<OwnershipChain chain={ownershipChain} loading={chainLoading} companyName={companyData?.company_name} />)}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================
+// Active Directors Module
+// ============================================
+function ActiveDirectors({ onBack }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [selectedCompany, setSelectedCompany] = useState(null)
+  const [companyData, setCompanyData] = useState(null)
+  const [officers, setOfficers] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    setSelectedCompany(null)
+    setCompanyData(null)
+    setOfficers(null)
+    try {
+      const data = await api.search(searchQuery)
+      setSearchResults(data.items || [])
+    } catch (err) {
+      setError('Search failed. Please check if the backend is running.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const handleSelectCompany = async (companyNumber) => {
+    setSelectedCompany(companyNumber)
+    setLoading(true)
+    setError(null)
+    setSearchResults(null)
+    try {
+      const [company, officersData] = await Promise.all([
+        api.getCompany(companyNumber),
+        api.getOfficers(companyNumber).catch(() => ({ items: [] }))
+      ])
+      setCompanyData(company)
+      setOfficers(officersData.items || [])
+    } catch (err) {
+      setError('Failed to load company data.')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const activeOfficers = (officers || []).filter(o => !o.resigned_on)
+  const directors = activeOfficers.filter(o => o.officer_role?.includes('director'))
+
+  const generateDirectorsCSV = () => {
+    if (!directors.length) return ''
+    const headers = ['Name', 'Role', 'Appointed', 'Nationality', 'Occupation', 'Address']
+    const rows = directors.map(d => [
+      d.name || '',
+      (d.officer_role || '').replace(/-/g, ' '),
+      d.appointed_on || '',
+      d.nationality || '',
+      d.occupation || '',
+      formatAddress(d.address)
+    ])
+    const csvContent = [
+      `Active Directors for ${companyData?.company_name || selectedCompany}`,
+      `Company Number: ${companyData?.company_number || selectedCompany}`,
+      `Generated: ${new Date().toLocaleDateString()}`,
+      '',
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+    return csvContent
+  }
+
+  const downloadCSV = () => {
+    const csv = generateDirectorsCSV()
+    if (!csv) return
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `${(companyData?.company_name || selectedCompany).replace(/[^a-zA-Z0-9]/g, '_')}_directors.csv`
+    link.click()
+  }
+
+  const downloadWord = () => {
+    if (!directors.length) return
+    const htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+      <head><meta charset="utf-8"><title>Active Directors</title></head>
+      <body>
+        <h1>${companyData?.company_name || selectedCompany}</h1>
+        <p><strong>Company Number:</strong> ${companyData?.company_number || selectedCompany}</p>
+        <p><strong>Status:</strong> ${companyData?.company_status || 'N/A'}</p>
+        <p><strong>Generated:</strong> ${new Date().toLocaleDateString()}</p>
+        <h2>Active Directors (${directors.length})</h2>
+        <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+          <tr style="background-color: #f0f0f0;">
+            <th>Name</th>
+            <th>Role</th>
+            <th>Appointed</th>
+            <th>Nationality</th>
+            <th>Occupation</th>
+          </tr>
+          ${directors.map(d => `
+            <tr>
+              <td>${d.name || ''}</td>
+              <td>${(d.officer_role || '').replace(/-/g, ' ')}</td>
+              <td>${d.appointed_on || ''}</td>
+              <td>${d.nationality || ''}</td>
+              <td>${d.occupation || ''}</td>
+            </tr>
+          `).join('')}
+        </table>
+      </body>
+      </html>
+    `
+    const blob = new Blob([htmlContent], { type: 'application/msword' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `${(companyData?.company_name || selectedCompany).replace(/[^a-zA-Z0-9]/g, '_')}_directors.doc`
+    link.click()
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+        Back to Modules
+      </button>
+
+      {/* Search Section */}
+      {!selectedCompany && (
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Company</h2>
+            <form onSubmit={handleSearch} className="space-y-4">
+              <div>
+                <label htmlFor="director-search" className="block text-sm font-medium text-gray-700 mb-1">Company name or number</label>
+                <input id="director-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g., Apple UK Limited or 03977902" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors" autoFocus />
+              </div>
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
+            </form>
+            {error && (<div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+            <SearchResults results={searchResults} onSelect={handleSelectCompany} loading={searchLoading} />
+          </div>
+        </div>
+      )}
+
+      {/* Results Section */}
+      {selectedCompany && (
+        <div>
+          {loading ? (
+            <div className="flex items-center justify-center p-12"><div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent"></div><p className="ml-4 text-lg text-gray-600">Loading company data...</p></div>
+          ) : (
+            <>
+              {error && (<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+
+              {/* Company Header with Download Buttons */}
+              <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{companyData?.company_name}</h2>
+                    <p className="text-gray-600">{companyData?.company_number} • {companyData?.company_status}</p>
+                    {companyData?.registered_office_address && (
+                      <p className="text-sm text-gray-500 mt-1">{formatAddress(companyData.registered_office_address)}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={downloadCSV} disabled={directors.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      Download CSV
+                    </button>
+                    <button onClick={downloadWord} disabled={directors.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      Download Word
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <Officers officers={officers} />
             </>
           )}
         </div>
@@ -1631,6 +1839,10 @@ function App() {
 
         {selectedModule === 'cross-directorship' && (
           <CrossDirectorshipSearch onBack={() => setSelectedModule(null)} />
+        )}
+
+        {selectedModule === 'active-directors' && (
+          <ActiveDirectors onBack={() => setSelectedModule(null)} />
         )}
 
         {selectedModule === 'company-timeline' && (
