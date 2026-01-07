@@ -458,7 +458,7 @@ function ModuleSelector({ onSelectModule }) {
       name: 'PSC Extractor',
       description: 'Search for companies and extract ownership information, directors, and persons with significant control. Trace corporate ownership chains to identify ultimate beneficial owners.',
       icon: (
-        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         </svg>
       ),
@@ -469,7 +469,7 @@ function ModuleSelector({ onSelectModule }) {
       name: 'Cross-directorship Search',
       description: 'Search for a director by name and find all companies where they hold positions. Stitch together multiple Companies House records for the same person.',
       icon: (
-        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
         </svg>
       ),
@@ -480,46 +480,43 @@ function ModuleSelector({ onSelectModule }) {
 
   const colorClasses = {
     blue: {
-      bg: 'bg-blue-50 hover:bg-blue-100',
-      border: 'border-blue-200 hover:border-blue-400',
+      bg: 'bg-blue-100/80 hover:bg-blue-100',
       icon: 'text-blue-600',
       title: 'text-blue-900'
     },
     purple: {
-      bg: 'bg-purple-50 hover:bg-purple-100',
-      border: 'border-purple-200 hover:border-purple-400',
+      bg: 'bg-purple-100/80 hover:bg-purple-100',
       icon: 'text-purple-600',
       title: 'text-purple-900'
     },
     cyan: {
-      bg: 'bg-cyan-50 hover:bg-cyan-100',
-      border: 'border-cyan-200 hover:border-cyan-400',
+      bg: 'bg-cyan-100/80 hover:bg-cyan-100',
       icon: 'text-cyan-600',
       title: 'text-cyan-900'
     }
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Select a Module</h2>
-        <p className="text-gray-600">Choose the tool you need to extract company information</p>
+    <div className="max-w-4xl mx-auto px-4">
+      <div className="text-center mb-10">
+        <h2 className="text-3xl font-bold text-gray-900 mb-3">Select a Module</h2>
+        <p className="text-gray-600 text-lg">Choose the tool you need to extract company information</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {modules.map((module) => {
           const colors = colorClasses[module.color]
           return (
             <button
               key={module.id}
               onClick={() => onSelectModule(module.id)}
-              className={`${colors.bg} ${colors.border} border-2 rounded-xl p-6 text-left transition-all duration-200 hover:shadow-lg hover:scale-[1.02]`}
+              className={`${colors.bg} rounded-2xl p-8 text-left transition-all duration-200 shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.12)] hover:-translate-y-1`}
             >
-              <div className={`${colors.icon} mb-4`}>
+              <div className={`${colors.icon} mb-5`}>
                 {module.icon}
               </div>
-              <h3 className={`text-xl font-bold ${colors.title} mb-2`}>{module.name}</h3>
-              <p className="text-gray-600 text-sm">{module.description}</p>
+              <h3 className={`text-xl font-semibold ${colors.title} mb-3`}>{module.name}</h3>
+              <p className="text-gray-600 text-base leading-relaxed">{module.description}</p>
             </button>
           )
         })}
@@ -1606,24 +1603,24 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <header className="bg-gray-50 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border-b border-gray-200/60">
+        <div className="max-w-7xl mx-auto px-4 py-5">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-600 p-3 rounded-xl shadow-md">
+              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
               </svg>
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">CH Tools</h1>
-              <p className="text-sm text-gray-500">Extract company information, officers and data direct from Companies House</p>
+              <p className="text-sm text-gray-600">Extract company information, officers and data direct from Companies House</p>
             </div>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-12">
         {!selectedModule && (
           <ModuleSelector onSelectModule={setSelectedModule} />
         )}
@@ -1646,14 +1643,18 @@ function App() {
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto py-6 text-center text-sm text-gray-500 space-y-2">
-        <p>This service is not affiliated with, endorsed by, or connected to Companies House.</p>
-        <p>All information should be verified directly with{' '}
-          <a href="https://find-and-update.company-information.service.gov.uk/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Companies House</a>.
-        </p>
-        <p>
-          <button onClick={() => setSelectedModule('terms')} className="text-blue-600 hover:underline">Terms of Use</button>
-        </p>
+      <footer className="mt-auto py-8">
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="bg-white/60 backdrop-blur-sm rounded-xl border border-gray-200/60 shadow-sm p-6 text-center text-sm text-gray-600 space-y-2">
+            <p>This service is not affiliated with, endorsed by, or connected to Companies House.</p>
+            <p>All information should be verified directly with{' '}
+              <a href="https://find-and-update.company-information.service.gov.uk/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">Companies House</a>.
+            </p>
+            <p className="pt-2 border-t border-gray-200/60 mt-3">
+              <button onClick={() => setSelectedModule('terms')} className="text-blue-600 hover:underline font-medium">Terms of Use</button>
+            </p>
+          </div>
+        </div>
       </footer>
     </div>
   )
