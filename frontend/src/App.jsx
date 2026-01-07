@@ -1487,6 +1487,117 @@ function CompanyTimeline({ onBack }) {
 }
 
 // ============================================
+// Terms of Use Component
+// ============================================
+function TermsOfUse({ onBack }) {
+  return (
+    <div className="max-w-4xl mx-auto">
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+        Back to Home
+      </button>
+
+      <div className="bg-white rounded-xl shadow-lg p-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Terms of Use</h1>
+        <p className="text-gray-500 mb-8">Last Updated: 7 January 2026</p>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-8">
+          <p className="text-amber-800 font-medium">Important: By using the Companies House Extractor tool, you agree to be bound by these Terms of Use. If you do not agree with these terms, please do not use this service.</p>
+        </div>
+
+        <div className="prose prose-gray max-w-none space-y-8">
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">1. Service Description</h2>
+            <p className="text-gray-700">Companies House Extractor is a free tool that extracts and formats data from Companies House, the UK's registrar of companies. The service retrieves publicly available information from the Companies House API.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">2. No Liability</h2>
+            <p className="text-gray-700 mb-3">This service is provided "as is" without any warranties, express or implied. To the fullest extent permitted by law:</p>
+            <ul className="list-disc pl-6 text-gray-700 space-y-2">
+              <li>We accept no liability for any loss, damage, or harm arising from your use of this service</li>
+              <li>We are not responsible for the accuracy, completeness, or timeliness of data extracted from Companies House</li>
+              <li>We make no warranties regarding the availability, reliability, or functionality of this service</li>
+              <li>We are not liable for any business losses, loss of profits, revenue, contracts, anticipated savings, data, goodwill, or wasted expenditure</li>
+              <li>We are not responsible for any indirect, consequential, or special damages</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">3. Data Accuracy Disclaimer</h2>
+            <p className="text-gray-700 mb-3">The data provided by this tool is sourced from Companies House records. While we strive to present this information accurately:</p>
+            <ul className="list-disc pl-6 text-gray-700 space-y-2">
+              <li>Data may be outdated, incomplete, or contain errors from the source</li>
+              <li>We do not verify, validate, or guarantee the accuracy of any information displayed</li>
+              <li>Users should always verify critical information directly with Companies House or through official channels</li>
+              <li>This tool should not be used as the sole basis for any legal, financial, or business decisions</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">4. Third-Party Data</h2>
+            <p className="text-gray-700">This service uses the Companies House API. All company data belongs to Companies House and is subject to their terms and conditions. We are not affiliated with or endorsed by Companies House.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">5. Acceptable Use</h2>
+            <p className="text-gray-700 mb-3">You agree not to:</p>
+            <ul className="list-disc pl-6 text-gray-700 space-y-2">
+              <li>Use this service for any unlawful purpose</li>
+              <li>Attempt to overwhelm or damage the service through excessive requests</li>
+              <li>Attempt to gain unauthorized access to any systems or data</li>
+              <li>Use automated tools to scrape or harvest data in violation of applicable laws</li>
+              <li>Misrepresent data obtained from this service as your own work</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">6. Service Availability</h2>
+            <p className="text-gray-700 mb-3">We make no guarantee that this service will be:</p>
+            <ul className="list-disc pl-6 text-gray-700 space-y-2">
+              <li>Available at all times or without interruption</li>
+              <li>Free from errors, bugs, or technical issues</li>
+              <li>Compatible with your systems or requirements</li>
+              <li>Maintained indefinitely (we may discontinue the service at any time without notice)</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Intellectual Property</h2>
+            <p className="text-gray-700">The design, code, and presentation of this tool are proprietary. Company data displayed through this service remains the property of Companies House and the respective companies.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">8. Indemnification</h2>
+            <p className="text-gray-700">You agree to indemnify and hold harmless the operators of this service from any claims, damages, losses, liabilities, and expenses (including legal fees) arising from your use of the service or violation of these terms.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">9. Changes to Terms</h2>
+            <p className="text-gray-700">We reserve the right to modify these Terms of Use at any time without prior notice. Your continued use of the service after any changes constitutes acceptance of the new terms.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">10. Governing Law</h2>
+            <p className="text-gray-700">These terms shall be governed by and construed in accordance with the laws of England and Wales. Any disputes shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">11. No Professional Advice</h2>
+            <p className="text-gray-700">This service does not provide legal, financial, accounting, or professional advice. The information provided should not be used as a substitute for consultation with professional advisors.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">12. Contact</h2>
+            <p className="text-gray-700">For questions about these Terms of Use, please contact the service operator through appropriate channels.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
 // Main App Component
 // ============================================
 function App() {
@@ -1528,12 +1639,20 @@ function App() {
         {selectedModule === 'company-timeline' && (
           <CompanyTimeline onBack={() => setSelectedModule(null)} />
         )}
+
+        {selectedModule === 'terms' && (
+          <TermsOfUse onBack={() => setSelectedModule(null)} />
+        )}
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto py-6 text-center text-sm text-gray-500">
-        <p>Data sourced from Companies House. All information can be verified at{' '}
-          <a href="https://find-and-update.company-information.service.gov.uk/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Companies House</a>
+      <footer className="mt-auto py-6 text-center text-sm text-gray-500 space-y-2">
+        <p>This service is not affiliated with, endorsed by, or connected to Companies House.</p>
+        <p>All information should be verified directly with{' '}
+          <a href="https://find-and-update.company-information.service.gov.uk/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Companies House</a>.
+        </p>
+        <p>
+          <button onClick={() => setSelectedModule('terms')} className="text-blue-600 hover:underline">Terms of Use</button>
         </p>
       </footer>
     </div>
