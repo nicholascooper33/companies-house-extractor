@@ -1502,13 +1502,13 @@ function TermsOfUse({ onBack }) {
         <p className="text-gray-500 mb-8">Last Updated: 7 January 2026</p>
 
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-8">
-          <p className="text-amber-800 font-medium">Important: By using the Companies House Extractor tool, you agree to be bound by these Terms of Use. If you do not agree with these terms, please do not use this service.</p>
+          <p className="text-amber-800 font-medium">Important: By using CH Tools, you agree to be bound by these Terms of Use. If you do not agree with these terms, please do not use this service.</p>
         </div>
 
         <div className="prose prose-gray max-w-none space-y-8">
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-3">1. Service Description</h2>
-            <p className="text-gray-700">Companies House Extractor is a free tool that extracts and formats data from Companies House, the UK's registrar of companies. The service retrieves publicly available information from the Companies House API.</p>
+            <p className="text-gray-700">CH Tools is a free tool that extracts and formats data from Companies House, the UK's registrar of companies. The service retrieves publicly available information from the Companies House API.</p>
           </section>
 
           <section>
@@ -1615,8 +1615,8 @@ function App() {
               </svg>
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Companies House Extractor</h1>
-              <p className="text-sm text-gray-500">Extract company information, officers, and ownership data</p>
+              <h1 className="text-2xl font-bold text-gray-900">CH Tools</h1>
+              <p className="text-sm text-gray-500">Extract company information, officers and data direct from Companies House</p>
             </div>
           </div>
         </div>
