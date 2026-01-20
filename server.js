@@ -646,6 +646,83 @@ app.get('/api/company/:companyNumber/timeline', async (req, res) => {
   }
 });
 
+// Get latest articles of association
+app.get('/api/company/:companyNumber/articles', async (req, res) => {
+  try {
+    const { companyNumber } = req.params;
+
+    // Get filing history
+    const filings = await fetchFromCompaniesHouse(`/company/${companyNumber}/filing-history?items_per_page=100&category=resolution`);
+
+    // Find articles-related filings
+    const articlesFilings = (filings.items || []).filter(filing => {
+      const desc = (filing.description || '').toLowerCase();
+      const type = (filing.type || '').toLowerCase();
+      return desc.includes('articles') ||
+             desc.includes('memorandum') ||
+             desc.includes('constitution') ||
+             type.includes('aa') ||
+             type.includes('articles');
+    });
+
+    // If no articles found in resolution category, try broader search
+    let allArticles = articlesFilings;
+    if (allArticles.length === 0) {
+      const allFilings = await fetchFromCompaniesHouse(`/company/${companyNumber}/filing-history?items_per_page=100`);
+      allArticles = (allFilings.items || []).filter(filing => {
+        const desc = (filing.description || '').toLowerCase();
+        const type = (filing.type || '').toLowerCase();
+        return desc.includes('articles') ||
+               desc.includes('memorandum') ||
+               desc.includes('constitution') ||
+               type.includes('aa') ||
+               (type.includes('model') && type.includes('articles'));
+      });
+    }
+
+    // Sort by date descending (most recent first)
+    allArticles.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    // Get the most recent one
+    const latest = allArticles[0] || null;
+
+    if (!latest) {
+      return res.json({
+        found: false,
+        message: 'No articles of association found in filing history'
+      });
+    }
+
+    // Build document URL
+    let documentUrl = null;
+    if (latest.links?.document_metadata) {
+      documentUrl = `https://find-and-update.company-information.service.gov.uk${latest.links.self || ''}/document`;
+    }
+
+    res.json({
+      found: true,
+      filing: {
+        date: latest.date,
+        description: latest.description,
+        type: latest.type,
+        documentUrl,
+        barcode: latest.barcode
+      },
+      allArticles: allArticles.slice(0, 10).map(f => ({
+        date: f.date,
+        description: f.description,
+        type: f.type,
+        documentUrl: f.links?.document_metadata
+          ? `https://find-and-update.company-information.service.gov.uk${f.links.self || ''}/document`
+          : null
+      }))
+    });
+  } catch (error) {
+    console.error('Articles fetch error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Helper to format filing descriptions
 function formatFilingDescription(description, values) {
   if (!description) return 'Filing';

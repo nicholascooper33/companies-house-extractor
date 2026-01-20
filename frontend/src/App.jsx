@@ -54,6 +54,12 @@ const api = {
     const res = await fetch(`/api/company/${companyNumber}/timeline`)
     if (!res.ok) throw new Error('Failed to fetch timeline')
     return res.json()
+  },
+  // Articles API
+  getArticles: async (companyNumber) => {
+    const res = await fetch(`/api/company/${companyNumber}/articles`)
+    if (!res.ok) throw new Error('Failed to fetch articles')
+    return res.json()
   }
 }
 
@@ -485,6 +491,17 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'green'
+    },
+    {
+      id: 'company-articles',
+      name: 'Company Articles',
+      description: 'Find and download the most recent articles of association for any UK company.',
+      icon: (
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      color: 'amber'
     }
     // Company Timeline module hidden for now - code retained
   ]
@@ -504,6 +521,11 @@ function ModuleSelector({ onSelectModule }) {
       bg: 'bg-green-100/80 hover:bg-green-100',
       icon: 'text-green-600',
       title: 'text-green-900'
+    },
+    amber: {
+      bg: 'bg-amber-100/80 hover:bg-amber-100',
+      icon: 'text-amber-600',
+      title: 'text-amber-900'
     },
     cyan: {
       bg: 'bg-cyan-100/80 hover:bg-cyan-100',
@@ -1062,6 +1084,167 @@ function ActiveDirectors({ onBack }) {
               </div>
 
               <Officers officers={officers} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================
+// Company Articles Module
+// ============================================
+function CompanyArticles({ onBack }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [selectedCompany, setSelectedCompany] = useState(null)
+  const [companyData, setCompanyData] = useState(null)
+  const [articlesData, setArticlesData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    setSelectedCompany(null)
+    setCompanyData(null)
+    setArticlesData(null)
+    try {
+      const data = await api.search(searchQuery)
+      setSearchResults(data.items || [])
+    } catch (err) {
+      setError('Search failed. Please check if the backend is running.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const handleSelectCompany = async (companyNumber) => {
+    setSelectedCompany(companyNumber)
+    setLoading(true)
+    setError(null)
+    setSearchResults(null)
+    try {
+      const [company, articles] = await Promise.all([
+        api.getCompany(companyNumber),
+        api.getArticles(companyNumber)
+      ])
+      setCompanyData(company)
+      setArticlesData(articles)
+    } catch (err) {
+      setError('Failed to load company data.')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'Unknown date'
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+        Back to Modules
+      </button>
+
+      {/* Search Section */}
+      {!selectedCompany && (
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Search for a Company</h2>
+            <form onSubmit={handleSearch} className="space-y-4">
+              <div>
+                <label htmlFor="articles-search" className="block text-sm font-medium text-gray-700 mb-1">Company name or number</label>
+                <input id="articles-search" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="e.g., Apple UK Limited or 03977902" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors" autoFocus />
+              </div>
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-3 bg-amber-600 text-white font-medium rounded-lg hover:bg-amber-700 focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{searchLoading ? 'Searching...' : 'Search'}</button>
+            </form>
+            {error && (<div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+            <SearchResults results={searchResults} onSelect={handleSelectCompany} loading={searchLoading} />
+          </div>
+        </div>
+      )}
+
+      {/* Results Section */}
+      {selectedCompany && (
+        <div className="max-w-2xl mx-auto">
+          {loading ? (
+            <div className="flex items-center justify-center p-12"><div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-amber-500 border-t-transparent"></div><p className="ml-4 text-lg text-gray-600">Loading company data...</p></div>
+          ) : (
+            <>
+              {error && (<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>)}
+
+              {/* Company Header */}
+              <div className="bg-white rounded-xl shadow-lg p-8">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">{companyData?.company_name}</h2>
+                  <p className="text-gray-600">{companyData?.company_number} • {companyData?.company_status}</p>
+                </div>
+
+                {articlesData?.found ? (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Latest Articles of Association</h3>
+
+                    {/* Latest Article */}
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-gray-900">{articlesData.filing.description || 'Articles of Association'}</p>
+                          <p className="text-sm text-gray-600 mt-1">Filed: {formatDate(articlesData.filing.date)}</p>
+                          {articlesData.filing.type && <p className="text-sm text-gray-500">Type: {articlesData.filing.type}</p>}
+                        </div>
+                        {articlesData.filing.documentUrl && (
+                          <a href={articlesData.filing.documentUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 px-4 py-2 bg-amber-600 text-white font-medium rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-2">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Download PDF
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Previous Articles */}
+                    {articlesData.allArticles && articlesData.allArticles.length > 1 && (
+                      <div>
+                        <h4 className="text-md font-medium text-gray-700 mb-3">Previous Filings</h4>
+                        <div className="space-y-2">
+                          {articlesData.allArticles.slice(1).map((article, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                              <div>
+                                <p className="text-sm font-medium text-gray-700">{article.description || 'Articles'}</p>
+                                <p className="text-xs text-gray-500">{formatDate(article.date)}</p>
+                              </div>
+                              {article.documentUrl && (
+                                <a href={article.documentUrl} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:text-amber-800 text-sm font-medium">View</a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    <p className="text-gray-500">No articles of association found in filing history for this company.</p>
+                    <p className="text-sm text-gray-400 mt-2">This may be because the company was incorporated before electronic records began, or uses model articles.</p>
+                  </div>
+                )}
+
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <button onClick={() => { setSelectedCompany(null); setCompanyData(null); setArticlesData(null); }} className="text-amber-600 hover:text-amber-800 font-medium text-sm">← Search for another company</button>
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -1843,6 +2026,10 @@ function App() {
 
         {selectedModule === 'active-directors' && (
           <ActiveDirectors onBack={() => setSelectedModule(null)} />
+        )}
+
+        {selectedModule === 'company-articles' && (
+          <CompanyArticles onBack={() => setSelectedModule(null)} />
         )}
 
         {selectedModule === 'company-timeline' && (
