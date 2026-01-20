@@ -658,33 +658,37 @@ app.get('/api/company/:companyNumber/articles', async (req, res) => {
     const isArticlesFiling = (filing) => {
       const desc = (filing.description || '').toLowerCase();
       const type = (filing.type || '').toLowerCase();
+      const category = (filing.category || '').toLowerCase();
+
+      // Also check description_values for legacy filings
+      const descValues = filing.description_values || {};
+      const descValuesText = Object.values(descValues).join(' ').toLowerCase();
+      const fullText = `${desc} ${descValuesText}`.toLowerCase();
 
       // Exclude anything accounting-related
-      if (desc.includes('account') || desc.includes('reference-date')) {
+      if (fullText.includes('account') && fullText.includes('reference')) {
+        return false;
+      }
+      if (desc.includes('change-account-reference') || desc.includes('accounting-reference')) {
         return false;
       }
 
-      // Specific article-related descriptions
-      const articleDescriptions = [
-        'articles',
-        'memorandum',
-        'new-articles',
-        'amended-articles',
-        'change-of-articles',
-        'resolution-to-alter-articles',
-        'special-resolution',
-        'model-articles'
-      ];
+      // Check if it contains 'articles' - the key indicator
+      const hasArticles = fullText.includes('articles') || fullText.includes('memorandum');
 
-      // Check description for article-related terms
-      const hasArticleDesc = articleDescriptions.some(term => desc.includes(term));
+      // Also match specific resolution types about articles
+      const hasAdoption = fullText.includes('adoption') && hasArticles;
+      const hasAmendment = (fullText.includes('amend') || fullText.includes('alter')) && hasArticles;
 
       // Check for specific article filing types
       // AA = Articles of Association, NEWINC = New Incorporation (includes articles)
-      const articleTypes = ['aa', 'newinc', 'model'];
-      const hasArticleType = articleTypes.some(t => type.startsWith(t) || type.includes('article'));
+      const articleTypes = ['aa', 'newinc', 'model-art'];
+      const hasArticleType = articleTypes.some(t => type.startsWith(t));
 
-      return hasArticleDesc || hasArticleType;
+      // Check if category is resolution and mentions articles
+      const isResolutionWithArticles = category === 'resolution' && hasArticles;
+
+      return hasArticles || hasAdoption || hasAmendment || hasArticleType || isResolutionWithArticles;
     };
 
     // Filter for actual articles filings
