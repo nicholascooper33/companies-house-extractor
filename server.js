@@ -651,34 +651,44 @@ app.get('/api/company/:companyNumber/articles', async (req, res) => {
   try {
     const { companyNumber } = req.params;
 
-    // Get filing history
-    const filings = await fetchFromCompaniesHouse(`/company/${companyNumber}/filing-history?items_per_page=100&category=resolution`);
+    // Get full filing history
+    const filings = await fetchFromCompaniesHouse(`/company/${companyNumber}/filing-history?items_per_page=100`);
 
-    // Find articles-related filings
-    const articlesFilings = (filings.items || []).filter(filing => {
+    // Helper to check if a filing is actually articles of association
+    const isArticlesFiling = (filing) => {
       const desc = (filing.description || '').toLowerCase();
       const type = (filing.type || '').toLowerCase();
-      return desc.includes('articles') ||
-             desc.includes('memorandum') ||
-             desc.includes('constitution') ||
-             type.includes('aa') ||
-             type.includes('articles');
-    });
 
-    // If no articles found in resolution category, try broader search
-    let allArticles = articlesFilings;
-    if (allArticles.length === 0) {
-      const allFilings = await fetchFromCompaniesHouse(`/company/${companyNumber}/filing-history?items_per_page=100`);
-      allArticles = (allFilings.items || []).filter(filing => {
-        const desc = (filing.description || '').toLowerCase();
-        const type = (filing.type || '').toLowerCase();
-        return desc.includes('articles') ||
-               desc.includes('memorandum') ||
-               desc.includes('constitution') ||
-               type.includes('aa') ||
-               (type.includes('model') && type.includes('articles'));
-      });
-    }
+      // Exclude anything accounting-related
+      if (desc.includes('account') || desc.includes('reference-date')) {
+        return false;
+      }
+
+      // Specific article-related descriptions
+      const articleDescriptions = [
+        'articles',
+        'memorandum',
+        'new-articles',
+        'amended-articles',
+        'change-of-articles',
+        'resolution-to-alter-articles',
+        'special-resolution',
+        'model-articles'
+      ];
+
+      // Check description for article-related terms
+      const hasArticleDesc = articleDescriptions.some(term => desc.includes(term));
+
+      // Check for specific article filing types
+      // AA = Articles of Association, NEWINC = New Incorporation (includes articles)
+      const articleTypes = ['aa', 'newinc', 'model'];
+      const hasArticleType = articleTypes.some(t => type.startsWith(t) || type.includes('article'));
+
+      return hasArticleDesc || hasArticleType;
+    };
+
+    // Filter for actual articles filings
+    const allArticles = (filings.items || []).filter(isArticlesFiling);
 
     // Sort by date descending (most recent first)
     allArticles.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
