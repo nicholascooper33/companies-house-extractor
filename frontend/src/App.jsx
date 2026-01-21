@@ -1114,12 +1114,9 @@ function GroupDirectors({ onBack }) {
   const addCompany = async (company) => {
     // Check if already added
     if (companies.some(c => c.company_number === company.company_number)) {
-      setError('Company already added to list.')
-      return
+      return // Silently ignore - visual feedback shows it's added
     }
 
-    setSearchResults(null)
-    setSearchQuery('')
     setCompanies(prev => [...prev, company])
 
     // Fetch directors for this company
@@ -1236,17 +1233,38 @@ function GroupDirectors({ onBack }) {
 
             {/* Search Results */}
             {searchResults && searchResults.length > 0 && (
-              <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
-                {searchResults.slice(0, 10).map((company, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => addCompany(company)}
-                    className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-cyan-400 hover:bg-cyan-50 transition-colors"
-                  >
-                    <p className="font-medium text-gray-900">{company.title}</p>
-                    <p className="text-sm text-gray-500">{company.company_number} • {company.company_status}</p>
-                  </button>
-                ))}
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-500">{searchResults.length} results</span>
+                  <button onClick={() => setSearchResults(null)} className="text-xs text-gray-400 hover:text-gray-600">Clear search</button>
+                </div>
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {searchResults.slice(0, 15).map((company, idx) => {
+                    const isAdded = companies.some(c => c.company_number === company.company_number)
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => addCompany(company)}
+                        disabled={isAdded}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors flex items-center justify-between ${
+                          isAdded
+                            ? 'border-green-300 bg-green-50 cursor-default'
+                            : 'border-gray-200 hover:border-cyan-400 hover:bg-cyan-50'
+                        }`}
+                      >
+                        <div>
+                          <p className={`font-medium ${isAdded ? 'text-green-800' : 'text-gray-900'}`}>{company.title}</p>
+                          <p className="text-sm text-gray-500">{company.company_number} • {company.company_status}</p>
+                        </div>
+                        {isAdded && (
+                          <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             )}
 
