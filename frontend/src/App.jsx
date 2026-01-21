@@ -485,6 +485,17 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'green'
+    },
+    {
+      id: 'group-directors',
+      name: 'Group Directors',
+      description: 'Add multiple companies to a group and export all their directors as a single Word document. Ideal for corporate groups.',
+      icon: (
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+        </svg>
+      ),
+      color: 'cyan'
     }
     // Company Timeline module hidden for now - code retained
     // Company Articles module removed for now - needs refinement
@@ -1067,6 +1078,268 @@ function ActiveDirectors({ onBack }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ============================================
+// Group Directors Module
+// ============================================
+function GroupDirectors({ onBack }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [companies, setCompanies] = useState([]) // List of added companies
+  const [directorsData, setDirectorsData] = useState({}) // company_number -> officers array
+  const [loadingDirectors, setLoadingDirectors] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    try {
+      const data = await api.search(searchQuery)
+      setSearchResults(data.items || [])
+    } catch (err) {
+      setError('Search failed.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const addCompany = async (company) => {
+    // Check if already added
+    if (companies.some(c => c.company_number === company.company_number)) {
+      setError('Company already added to list.')
+      return
+    }
+
+    setSearchResults(null)
+    setSearchQuery('')
+    setCompanies(prev => [...prev, company])
+
+    // Fetch directors for this company
+    setLoadingDirectors(true)
+    try {
+      const officersData = await api.getOfficers(company.company_number)
+      const activeDirectors = (officersData.items || []).filter(o => !o.resigned_on && o.officer_role?.includes('director'))
+      setDirectorsData(prev => ({
+        ...prev,
+        [company.company_number]: activeDirectors
+      }))
+    } catch (err) {
+      console.error('Failed to fetch directors for', company.company_number)
+      setDirectorsData(prev => ({
+        ...prev,
+        [company.company_number]: []
+      }))
+    } finally {
+      setLoadingDirectors(false)
+    }
+  }
+
+  const removeCompany = (companyNumber) => {
+    setCompanies(prev => prev.filter(c => c.company_number !== companyNumber))
+    setDirectorsData(prev => {
+      const newData = { ...prev }
+      delete newData[companyNumber]
+      return newData
+    })
+  }
+
+  const totalDirectors = Object.values(directorsData).flat().length
+
+  const downloadWord = () => {
+    if (companies.length === 0) return
+
+    const rows = []
+    companies.forEach(company => {
+      const directors = directorsData[company.company_number] || []
+      directors.forEach((d, idx) => {
+        rows.push(`
+          <tr>
+            ${idx === 0 ? `<td rowspan="${directors.length || 1}" style="vertical-align: top; font-weight: bold;">${company.title || company.company_name}<br/><span style="font-weight: normal; font-size: 0.9em; color: #666;">${company.company_number}</span></td>` : ''}
+            <td>${d.name || ''}</td>
+            <td>${(d.officer_role || '').replace(/-/g, ' ')}</td>
+            <td>${d.appointed_on || ''}</td>
+          </tr>
+        `)
+      })
+      if (directors.length === 0) {
+        rows.push(`
+          <tr>
+            <td style="font-weight: bold;">${company.title || company.company_name}<br/><span style="font-weight: normal; font-size: 0.9em; color: #666;">${company.company_number}</span></td>
+            <td colspan="3" style="color: #666; font-style: italic;">No active directors found</td>
+          </tr>
+        `)
+      }
+    })
+
+    const htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+      <head><meta charset="utf-8"><title>Group Directors</title></head>
+      <body>
+        <h1>Group Directors Summary</h1>
+        <p><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <p><strong>Companies:</strong> ${companies.length} &nbsp;|&nbsp; <strong>Total Directors:</strong> ${totalDirectors}</p>
+        <br/>
+        <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+          <tr style="background-color: #f0f0f0;">
+            <th style="width: 30%;">Company</th>
+            <th style="width: 30%;">Director Name</th>
+            <th style="width: 20%;">Role</th>
+            <th style="width: 20%;">Appointed</th>
+          </tr>
+          ${rows.join('')}
+        </table>
+      </body>
+      </html>
+    `
+    const blob = new Blob([htmlContent], { type: 'application/msword' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `group_directors_${new Date().toISOString().split('T')[0]}.doc`
+    link.click()
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+        Back to Modules
+      </button>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Search and Add */}
+        <div>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Add Companies to Group</h2>
+            <form onSubmit={handleSearch} className="space-y-3">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by company name or number..."
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
+                autoFocus
+              />
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-2 bg-cyan-600 text-white font-medium rounded-lg hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                {searchLoading ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+
+            {error && <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+
+            {/* Search Results */}
+            {searchResults && searchResults.length > 0 && (
+              <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
+                {searchResults.slice(0, 10).map((company, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => addCompany(company)}
+                    className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-cyan-400 hover:bg-cyan-50 transition-colors"
+                  >
+                    <p className="font-medium text-gray-900">{company.title}</p>
+                    <p className="text-sm text-gray-500">{company.company_number} • {company.company_status}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {searchResults && searchResults.length === 0 && (
+              <p className="mt-4 text-gray-500 text-sm">No companies found.</p>
+            )}
+          </div>
+
+          {/* Added Companies List */}
+          {companies.length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Companies Added ({companies.length})</h3>
+                <button onClick={() => { setCompanies([]); setDirectorsData({}) }} className="text-sm text-red-600 hover:text-red-800">Clear all</button>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {companies.map((company) => (
+                  <div key={company.company_number} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900 text-sm">{company.title || company.company_name}</p>
+                      <p className="text-xs text-gray-500">{company.company_number}</p>
+                    </div>
+                    <button onClick={() => removeCompany(company.company_number)} className="text-gray-400 hover:text-red-600 p-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Directors List */}
+        <div>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Directors Summary</h2>
+                <p className="text-sm text-gray-500">{totalDirectors} director{totalDirectors !== 1 ? 's' : ''} across {companies.length} compan{companies.length !== 1 ? 'ies' : 'y'}</p>
+              </div>
+              <button
+                onClick={downloadWord}
+                disabled={companies.length === 0}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Download Word
+              </button>
+            </div>
+
+            {loadingDirectors && (
+              <div className="flex items-center justify-center py-8">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-cyan-500 border-t-transparent"></div>
+                <span className="ml-2 text-gray-600">Loading directors...</span>
+              </div>
+            )}
+
+            {companies.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                <p>Add companies to see their directors</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[500px] overflow-y-auto">
+                {companies.map((company) => {
+                  const directors = directorsData[company.company_number] || []
+                  return (
+                    <div key={company.company_number} className="border border-gray-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2">{company.title || company.company_name}</h4>
+                      <p className="text-xs text-gray-500 mb-3">{company.company_number}</p>
+                      {directors.length > 0 ? (
+                        <div className="space-y-2">
+                          {directors.map((d, idx) => (
+                            <div key={idx} className="flex justify-between items-start text-sm bg-gray-50 rounded p-2">
+                              <div>
+                                <p className="font-medium text-gray-800">{d.name}</p>
+                                <p className="text-xs text-gray-500">{(d.officer_role || '').replace(/-/g, ' ')}</p>
+                              </div>
+                              <span className="text-xs text-gray-400">{d.appointed_on || ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic">No active directors found</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1844,6 +2117,10 @@ function App() {
 
         {selectedModule === 'active-directors' && (
           <ActiveDirectors onBack={() => setSelectedModule(null)} />
+        )}
+
+        {selectedModule === 'group-directors' && (
+          <GroupDirectors onBack={() => setSelectedModule(null)} />
         )}
 
         {selectedModule === 'company-timeline' && (
