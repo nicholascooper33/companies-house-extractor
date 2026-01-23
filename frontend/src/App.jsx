@@ -485,6 +485,17 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'green'
+    },
+    {
+      id: 'former-directors',
+      name: 'Former Directors',
+      description: 'Find former directors who have resigned in the last three years, and their registered addresses.',
+      icon: (
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      color: 'orange'
     }
     // Company Timeline module hidden for now - code retained
     // Company Articles module removed for now - needs refinement
@@ -505,6 +516,11 @@ function ModuleSelector({ onSelectModule }) {
       bg: 'bg-green-100/80 hover:bg-green-100',
       icon: 'text-green-600',
       title: 'text-green-900'
+    },
+    orange: {
+      bg: 'bg-orange-100/80 hover:bg-orange-100',
+      icon: 'text-orange-600',
+      title: 'text-orange-900'
     }
   }
 
@@ -1140,6 +1156,308 @@ function ActiveDirectors({ onBack }) {
                         </div>
                       ) : (
                         <p className="text-sm text-gray-400 italic">No active directors found</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
+// Former Directors Module
+// ============================================
+function FormerDirectors({ onBack }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [companies, setCompanies] = useState([]) // List of added companies
+  const [formerDirectorsData, setFormerDirectorsData] = useState({}) // company_number -> former officers array
+  const [loadingDirectors, setLoadingDirectors] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Calculate cutoff date (3 years ago)
+  const threeYearsAgo = new Date()
+  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3)
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    try {
+      const data = await api.search(searchQuery)
+      setSearchResults(data.items || [])
+    } catch (err) {
+      setError('Search failed.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const addCompany = async (company) => {
+    // Check if already added
+    if (companies.some(c => c.company_number === company.company_number)) {
+      return // Silently ignore - visual feedback shows it's added
+    }
+
+    setCompanies(prev => [...prev, company])
+
+    // Fetch officers for this company and filter for former directors (resigned in last 3 years)
+    setLoadingDirectors(true)
+    try {
+      const officersData = await api.getOfficers(company.company_number)
+      const formerDirectors = (officersData.items || []).filter(o => {
+        // Must be a director role and must have resigned
+        if (!o.officer_role?.includes('director') || !o.resigned_on) return false
+        // Check if resigned within last 3 years
+        const resignedDate = new Date(o.resigned_on)
+        return resignedDate >= threeYearsAgo
+      })
+      setFormerDirectorsData(prev => ({
+        ...prev,
+        [company.company_number]: formerDirectors
+      }))
+    } catch (err) {
+      console.error('Failed to fetch officers for', company.company_number)
+      setFormerDirectorsData(prev => ({
+        ...prev,
+        [company.company_number]: []
+      }))
+    } finally {
+      setLoadingDirectors(false)
+    }
+  }
+
+  const removeCompany = (companyNumber) => {
+    setCompanies(prev => prev.filter(c => c.company_number !== companyNumber))
+    setFormerDirectorsData(prev => {
+      const newData = { ...prev }
+      delete newData[companyNumber]
+      return newData
+    })
+  }
+
+  const totalFormerDirectors = Object.values(formerDirectorsData).flat().length
+
+  const downloadWord = () => {
+    if (companies.length === 0) return
+
+    const rows = []
+    companies.forEach(company => {
+      const directors = formerDirectorsData[company.company_number] || []
+      directors.forEach((d, idx) => {
+        rows.push(`
+          <tr>
+            ${idx === 0 ? `<td rowspan="${directors.length || 1}" style="vertical-align: top; font-weight: bold;">${company.title || company.company_name}<br/><span style="font-weight: normal; font-size: 0.9em; color: #666;">${company.company_number}</span></td>` : ''}
+            <td>${d.name || ''}</td>
+            <td>${d.appointed_on || ''}</td>
+            <td>${d.resigned_on || ''}</td>
+            <td style="font-size: 0.9em;">${formatAddress(d.address)}</td>
+          </tr>
+        `)
+      })
+      if (directors.length === 0) {
+        rows.push(`
+          <tr>
+            <td style="font-weight: bold;">${company.title || company.company_name}<br/><span style="font-weight: normal; font-size: 0.9em; color: #666;">${company.company_number}</span></td>
+            <td colspan="4" style="color: #666; font-style: italic;">No former directors in last 3 years</td>
+          </tr>
+        `)
+      }
+    })
+
+    const htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+      <head><meta charset="utf-8"><title>Former Directors</title></head>
+      <body>
+        <h1>Former Directors Summary</h1>
+        <p><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <p><strong>Companies:</strong> ${companies.length} &nbsp;|&nbsp; <strong>Former Directors (last 3 years):</strong> ${totalFormerDirectors}</p>
+        <br/>
+        <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+          <tr style="background-color: #f0f0f0;">
+            <th style="width: 20%;">Company</th>
+            <th style="width: 20%;">Director Name</th>
+            <th style="width: 12%;">Appointed</th>
+            <th style="width: 12%;">Resigned</th>
+            <th style="width: 36%;">Service Address</th>
+          </tr>
+          ${rows.join('')}
+        </table>
+      </body>
+      </html>
+    `
+    const blob = new Blob([htmlContent], { type: 'application/msword' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `former_directors_${new Date().toISOString().split('T')[0]}.doc`
+    link.click()
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-orange-600 hover:text-orange-800 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+        Back to Modules
+      </button>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Search and Add */}
+        <div>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Add Companies</h2>
+            <form onSubmit={handleSearch} className="space-y-3">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by company name or number..."
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                autoFocus
+              />
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-2 bg-orange-600 text-white font-medium rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                {searchLoading ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+
+            {error && <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+
+            {/* Search Results */}
+            {searchResults && searchResults.length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-500">{searchResults.length} results</span>
+                  <button onClick={() => setSearchResults(null)} className="text-xs text-gray-400 hover:text-gray-600">Clear search</button>
+                </div>
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {searchResults.slice(0, 15).map((company, idx) => {
+                    const isAdded = companies.some(c => c.company_number === company.company_number)
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => addCompany(company)}
+                        disabled={isAdded}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors flex items-center justify-between ${
+                          isAdded
+                            ? 'border-green-300 bg-green-50 cursor-default'
+                            : 'border-gray-200 hover:border-orange-400 hover:bg-orange-50'
+                        }`}
+                      >
+                        <div>
+                          <p className={`font-medium ${isAdded ? 'text-green-800' : 'text-gray-900'}`}>{company.title}</p>
+                          <p className="text-sm text-gray-500">{company.company_number} • {company.company_status}</p>
+                        </div>
+                        {isAdded && (
+                          <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {searchResults && searchResults.length === 0 && (
+              <p className="mt-4 text-gray-500 text-sm">No companies found.</p>
+            )}
+          </div>
+
+          {/* Added Companies List */}
+          {companies.length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Companies Added ({companies.length})</h3>
+                <button onClick={() => { setCompanies([]); setFormerDirectorsData({}) }} className="text-sm text-red-600 hover:text-red-800">Clear all</button>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {companies.map((company) => (
+                  <div key={company.company_number} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900 text-sm">{company.title || company.company_name}</p>
+                      <p className="text-xs text-gray-500">{company.company_number}</p>
+                    </div>
+                    <button onClick={() => removeCompany(company.company_number)} className="text-gray-400 hover:text-red-600 p-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Former Directors List */}
+        <div>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Former Directors</h2>
+                <p className="text-sm text-gray-500">{totalFormerDirectors} former director{totalFormerDirectors !== 1 ? 's' : ''} (resigned in last 3 years)</p>
+              </div>
+              <button
+                onClick={downloadWord}
+                disabled={companies.length === 0}
+                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Download Word
+              </button>
+            </div>
+
+            {loadingDirectors && (
+              <div className="flex items-center justify-center py-8">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-orange-500 border-t-transparent"></div>
+                <span className="ml-2 text-gray-600">Loading directors...</span>
+              </div>
+            )}
+
+            {companies.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <p>Add companies to see their former directors</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[500px] overflow-y-auto">
+                {companies.map((company) => {
+                  const directors = formerDirectorsData[company.company_number] || []
+                  return (
+                    <div key={company.company_number} className="border border-gray-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2">{company.title || company.company_name}</h4>
+                      <p className="text-xs text-gray-500 mb-3">{company.company_number}</p>
+                      {directors.length > 0 ? (
+                        <div className="space-y-3">
+                          {directors.map((d, idx) => (
+                            <div key={idx} className="text-sm bg-orange-50 rounded p-3 border border-orange-100">
+                              <div className="flex justify-between items-start mb-2">
+                                <p className="font-medium text-gray-800">{d.name}</p>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-2">
+                                <div>
+                                  <span className="text-gray-400">Appointed:</span> {d.appointed_on || 'N/A'}
+                                </div>
+                                <div>
+                                  <span className="text-gray-400">Resigned:</span> {d.resigned_on || 'N/A'}
+                                </div>
+                              </div>
+                              <div className="text-xs">
+                                <span className="text-gray-400">Service Address:</span>
+                                <p className="text-gray-600 mt-0.5">{formatAddress(d.address)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic">No former directors in last 3 years</p>
                       )}
                     </div>
                   )
@@ -1926,6 +2244,10 @@ function App() {
 
         {selectedModule === 'active-directors' && (
           <ActiveDirectors onBack={() => setSelectedModule(null)} />
+        )}
+
+        {selectedModule === 'former-directors' && (
+          <FormerDirectors onBack={() => setSelectedModule(null)} />
         )}
 
         {selectedModule === 'company-timeline' && (
