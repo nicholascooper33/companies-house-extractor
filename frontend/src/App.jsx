@@ -2270,7 +2270,7 @@ function App() {
             <p className="pt-2 border-t border-gray-200/60 mt-3">
               <button onClick={() => setSelectedModule('terms')} className="text-blue-600 hover:underline font-medium">Terms of Use</button>
             </p>
-            <p className="text-xs text-gray-400 mt-2">Made by Nicholas Cooper</p>
+            <p className="text-xs text-gray-400 mt-2">Made by <a href="https://www.linkedin.com/in/nicholas-cooper-26278785/" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 hover:underline">Nicholas Cooper</a></p>
           </div>
         </div>
       </footer>
