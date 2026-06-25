@@ -357,10 +357,21 @@ const server = http.createServer(async (req, res) => {
     const sessionId = Date.now().toString();
     sseConnections.set(sessionId, res);
 
-    // Send endpoint info
-    res.write(`data: ${JSON.stringify({ type: 'endpoint', url: `/message?sessionId=${sessionId}` })}\n\n`);
+    // Send endpoint event - full URL required
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers.host;
+    const messageUrl = `${protocol}://${host}/message?sessionId=${sessionId}`;
+    res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
+
+    // Keep connection alive
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(': keepalive\n\n');
+      }
+    }, 30000);
 
     req.on('close', () => {
+      clearInterval(keepAlive);
       sseConnections.delete(sessionId);
     });
 
@@ -381,7 +392,7 @@ const server = http.createServer(async (req, res) => {
 
         // Send response via SSE if connection exists
         if (sseRes && !sseRes.writableEnded) {
-          sseRes.write(`data: ${JSON.stringify(response)}\n\n`);
+          sseRes.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
         }
 
         res.writeHead(202, { 'Content-Type': 'application/json' });
