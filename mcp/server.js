@@ -233,9 +233,6 @@ const tools = {
   }
 };
 
-// Store active SSE connections
-const sseConnections = new Map();
-
 // Handle MCP JSON-RPC request
 async function handleMCPRequest(request) {
   const { jsonrpc, id, method, params } = request;
@@ -250,7 +247,8 @@ async function handleMCPRequest(request) {
         jsonrpc: '2.0',
         id,
         result: {
-          protocolVersion: '2024-11-05',
+          // Echo the client's requested protocol version when provided
+          protocolVersion: params?.protocolVersion || '2025-03-26',
           capabilities: {
             tools: {}
           },
@@ -340,80 +338,32 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   // Health check
-  if (url.pathname === '/health' || url.pathname === '/') {
+  if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', service: 'companies-house-mcp' }));
     return;
   }
 
-  // SSE endpoint for MCP
-  if (url.pathname === '/sse') {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    });
+  // MCP endpoint - Streamable HTTP transport.
+  // Claude (and other modern MCP clients) POST JSON-RPC messages directly here.
+  // We accept the connector at any of these paths for flexibility.
+  const isMcpPath = ['/sse', '/mcp', '/'].includes(url.pathname);
 
-    const sessionId = Date.now().toString();
-    sseConnections.set(sessionId, res);
-
-    // Send endpoint event - full URL required
-    const protocol = req.headers['x-forwarded-proto'] || 'https';
-    const host = req.headers.host;
-    const messageUrl = `${protocol}://${host}/message?sessionId=${sessionId}`;
-    res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
-
-    // Keep connection alive
-    const keepAlive = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(': keepalive\n\n');
-      }
-    }, 30000);
-
-    req.on('close', () => {
-      clearInterval(keepAlive);
-      sseConnections.delete(sessionId);
-    });
-
-    return;
-  }
-
-  // Message endpoint for MCP requests
-  if (url.pathname === '/message' && req.method === 'POST') {
-    const sessionId = url.searchParams.get('sessionId');
-    const sseRes = sseConnections.get(sessionId);
-
+  if (isMcpPath && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
       try {
-        const request = JSON.parse(body);
-        const response = await handleMCPRequest(request);
+        const message = JSON.parse(body);
 
-        // Send response via SSE if connection exists
-        if (sseRes && !sseRes.writableEnded) {
-          sseRes.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+        // Notifications / responses (no id) require no reply per JSON-RPC.
+        if (message.id === undefined || message.id === null) {
+          res.writeHead(202);
+          res.end();
+          return;
         }
 
-        res.writeHead(202, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'accepted' }));
-      } catch (error) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid request' }));
-      }
-    });
-
-    return;
-  }
-
-  // Direct JSON-RPC endpoint (simpler alternative)
-  if (url.pathname === '/mcp' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', async () => {
-      try {
-        const request = JSON.parse(body);
-        const response = await handleMCPRequest(request);
+        const response = await handleMCPRequest(message);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(response));
       } catch (error) {
@@ -421,7 +371,21 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
       }
     });
+    return;
+  }
 
+  // Streamable HTTP optional server->client stream. We don't push
+  // server-initiated messages, so keep an idle keep-alive stream open.
+  if (isMcpPath && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    });
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded) res.write(': keepalive\n\n');
+    }, 30000);
+    req.on('close', () => clearInterval(keepAlive));
     return;
   }
 
