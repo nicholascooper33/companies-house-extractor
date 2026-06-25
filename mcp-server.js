@@ -1,26 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * MCP Server for Companies House API
+ * MCP Server for Companies House API (HTTP/SSE version for remote deployment)
  *
- * This server exposes Companies House data to Claude Desktop via MCP.
- *
- * Setup:
- * 1. Add to Claude Desktop config (~/Library/Application Support/Claude/claude_desktop_config.json on Mac):
- *    {
- *      "mcpServers": {
- *        "companies-house": {
- *          "command": "node",
- *          "args": ["/path/to/companies-house-extractor/mcp-server.js"],
- *          "env": {
- *            "COMPANIES_HOUSE_API_KEY": "your-api-key"
- *          }
- *        }
- *      }
- *    }
- * 2. Restart Claude Desktop
+ * Deploy on Railway and connect via Claude web interface.
  */
 
+const http = require('http');
+const { URL } = require('url');
+
+const PORT = process.env.PORT || 3002;
 const CH_API_BASE = 'https://api.company-information.service.gov.uk';
 
 // API helper function
@@ -59,7 +48,7 @@ function formatAddress(address) {
   return parts.join(', ') || 'N/A';
 }
 
-// Tool implementations
+// Tool definitions
 const tools = {
   search_company: {
     description: 'Search for companies by name or number',
@@ -113,7 +102,7 @@ const tools = {
   },
 
   get_company_accounts: {
-    description: 'Get the latest filed accounts for a company. Returns the most recent account filings with links to view the documents.',
+    description: 'Get the latest filed accounts for a company. Returns the most recent account filings with links to view the PDF documents.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -152,17 +141,14 @@ const tools = {
             documentUrl = `https://find-and-update.company-information.service.gov.uk/company/${company_number}/filing-history/${filing.transaction_id}/document?format=pdf&download=0`;
           }
 
-          let description = filing.description || 'Accounts';
-          if (filing.description_values) {
-            for (const [key, value] of Object.entries(filing.description_values)) {
-              description = description.replace(`{${key}}`, value);
-            }
-          }
+          const year = filing.description_values?.made_up_date
+            ? new Date(filing.description_values.made_up_date).getFullYear()
+            : null;
 
           return {
-            date: filing.date,
-            description: description.replace(/-/g, ' '),
-            made_up_date: filing.description_values?.made_up_date || null,
+            title: year ? `${year} accounts` : 'Accounts',
+            filed_date: filing.date,
+            year_ending: filing.description_values?.made_up_date || null,
             document_url: documentUrl
           };
         });
@@ -247,29 +233,20 @@ const tools = {
   }
 };
 
-// MCP Protocol implementation
-const readline = require('readline');
+// Store active SSE connections
+const sseConnections = new Map();
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  terminal: false
-});
-
-function sendResponse(response) {
-  process.stdout.write(JSON.stringify(response) + '\n');
-}
-
-function handleRequest(request) {
+// Handle MCP JSON-RPC request
+async function handleMCPRequest(request) {
   const { jsonrpc, id, method, params } = request;
 
   if (jsonrpc !== '2.0') {
-    return sendResponse({ jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid Request' } });
+    return { jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid Request' } };
   }
 
   switch (method) {
     case 'initialize':
-      sendResponse({
+      return {
         jsonrpc: '2.0',
         id,
         result: {
@@ -282,15 +259,10 @@ function handleRequest(request) {
             version: '1.0.0'
           }
         }
-      });
-      break;
-
-    case 'notifications/initialized':
-      // No response needed for notifications
-      break;
+      };
 
     case 'tools/list':
-      sendResponse({
+      return {
         jsonrpc: '2.0',
         id,
         result: {
@@ -300,75 +272,153 @@ function handleRequest(request) {
             inputSchema: tool.inputSchema
           }))
         }
-      });
-      break;
+      };
 
     case 'tools/call':
       const { name, arguments: args } = params;
       const tool = tools[name];
       if (!tool) {
-        sendResponse({
+        return {
           jsonrpc: '2.0',
           id,
           error: { code: -32601, message: `Unknown tool: ${name}` }
-        });
-        return;
+        };
       }
 
-      tool.handler(args || {})
-        .then(result => {
-          sendResponse({
-            jsonrpc: '2.0',
-            id,
-            result: {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(result, null, 2)
-                }
-              ]
-            }
-          });
-        })
-        .catch(error => {
-          sendResponse({
-            jsonrpc: '2.0',
-            id,
-            result: {
-              content: [
-                {
-                  type: 'text',
-                  text: `Error: ${error.message}`
-                }
-              ],
-              isError: true
-            }
-          });
-        });
-      break;
+      try {
+        const result = await tool.handler(args || {});
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }
+            ]
+          }
+        };
+      } catch (error) {
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: `Error: ${error.message}`
+              }
+            ],
+            isError: true
+          }
+        };
+      }
 
     default:
-      sendResponse({
+      return {
         jsonrpc: '2.0',
         id,
         error: { code: -32601, message: `Method not found: ${method}` }
-      });
+      };
   }
 }
 
-rl.on('line', (line) => {
-  try {
-    const request = JSON.parse(line);
-    handleRequest(request);
-  } catch (error) {
-    sendResponse({
-      jsonrpc: '2.0',
-      id: null,
-      error: { code: -32700, message: 'Parse error' }
-    });
+// Create HTTP server
+const server = http.createServer(async (req, res) => {
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
   }
+
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  // Health check
+  if (url.pathname === '/health' || url.pathname === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', service: 'companies-house-mcp' }));
+    return;
+  }
+
+  // SSE endpoint for MCP
+  if (url.pathname === '/sse') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    });
+
+    const sessionId = Date.now().toString();
+    sseConnections.set(sessionId, res);
+
+    // Send endpoint info
+    res.write(`data: ${JSON.stringify({ type: 'endpoint', url: `/message?sessionId=${sessionId}` })}\n\n`);
+
+    req.on('close', () => {
+      sseConnections.delete(sessionId);
+    });
+
+    return;
+  }
+
+  // Message endpoint for MCP requests
+  if (url.pathname === '/message' && req.method === 'POST') {
+    const sessionId = url.searchParams.get('sessionId');
+    const sseRes = sseConnections.get(sessionId);
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const request = JSON.parse(body);
+        const response = await handleMCPRequest(request);
+
+        // Send response via SSE if connection exists
+        if (sseRes && !sseRes.writableEnded) {
+          sseRes.write(`data: ${JSON.stringify(response)}\n\n`);
+        }
+
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'accepted' }));
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid request' }));
+      }
+    });
+
+    return;
+  }
+
+  // Direct JSON-RPC endpoint (simpler alternative)
+  if (url.pathname === '/mcp' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const request = JSON.parse(body);
+        const response = await handleMCPRequest(request);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(response));
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
+      }
+    });
+
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Not found' }));
 });
 
-// Handle process signals
-process.on('SIGINT', () => process.exit(0));
-process.on('SIGTERM', () => process.exit(0));
+server.listen(PORT, () => {
+  console.log(`MCP Server running on port ${PORT}`);
+  console.log(`API Key configured: ${!!process.env.COMPANIES_HOUSE_API_KEY}`);
+});
