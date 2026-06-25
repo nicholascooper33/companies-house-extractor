@@ -660,6 +660,64 @@ function formatFilingDescription(description, values) {
   return result.charAt(0).toUpperCase() + result.slice(1);
 }
 
+// Get company accounts (latest filings)
+app.get('/api/company/:companyNumber/accounts', async (req, res) => {
+  try {
+    const { companyNumber } = req.params;
+    const limit = parseInt(req.query.limit) || 2;
+
+    // Fetch filing history
+    const filingHistory = await fetchFromCompaniesHouse(
+      `/company/${companyNumber}/filing-history?items_per_page=100&category=accounts`
+    );
+
+    // Filter for actual accounts filings
+    const accountsFilings = (filingHistory.items || [])
+      .filter(filing => {
+        const type = (filing.type || '').toLowerCase();
+        const description = (filing.description || '').toLowerCase();
+        // Match accounts filings
+        return type.includes('aa') ||
+               description.includes('accounts') ||
+               description.includes('full accounts') ||
+               description.includes('micro-entity') ||
+               description.includes('small company') ||
+               description.includes('medium company') ||
+               description.includes('dormant') ||
+               description.includes('group accounts') ||
+               description.includes('abbreviated');
+      })
+      .slice(0, limit)
+      .map(filing => {
+        // Build document download URL if available
+        let documentUrl = null;
+        if (filing.links?.document_metadata) {
+          documentUrl = `https://find-and-update.company-information.service.gov.uk/company/${companyNumber}/filing-history/${filing.transaction_id}/document?format=pdf&download=0`;
+        }
+
+        return {
+          date: filing.date,
+          description: filing.description,
+          description_values: filing.description_values,
+          type: filing.type,
+          made_up_date: filing.description_values?.made_up_date || null,
+          transaction_id: filing.transaction_id,
+          document_url: documentUrl,
+          barcode: filing.barcode
+        };
+      });
+
+    res.json({
+      company_number: companyNumber,
+      accounts: accountsFilings,
+      total_count: (filingHistory.items || []).length
+    });
+  } catch (error) {
+    console.error('Accounts error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({

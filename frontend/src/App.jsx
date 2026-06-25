@@ -54,6 +54,12 @@ const api = {
     const res = await fetch(`/api/company/${companyNumber}/timeline`)
     if (!res.ok) throw new Error('Failed to fetch timeline')
     return res.json()
+  },
+  // Accounts API
+  getAccounts: async (companyNumber, limit = 2) => {
+    const res = await fetch(`/api/company/${companyNumber}/accounts?limit=${limit}`)
+    if (!res.ok) throw new Error('Failed to fetch accounts')
+    return res.json()
   }
 }
 
@@ -496,6 +502,17 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'orange'
+    },
+    {
+      id: 'company-accounts',
+      name: 'Company Accounts',
+      description: 'View and download a company\'s latest two sets of filed accounts from Companies House.',
+      icon: (
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+      ),
+      color: 'teal'
     }
     // Company Timeline module hidden for now - code retained
     // Company Articles module removed for now - needs refinement
@@ -521,6 +538,11 @@ function ModuleSelector({ onSelectModule }) {
       bg: 'bg-orange-100/80 hover:bg-orange-100',
       icon: 'text-orange-600',
       title: 'text-orange-900'
+    },
+    teal: {
+      bg: 'bg-teal-100/80 hover:bg-teal-100',
+      icon: 'text-teal-600',
+      title: 'text-teal-900'
     }
   }
 
@@ -1472,6 +1494,198 @@ function FormerDirectors({ onBack }) {
 }
 
 // ============================================
+// Company Accounts Module
+// ============================================
+function CompanyAccounts({ onBack }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [selectedCompany, setSelectedCompany] = useState(null)
+  const [accounts, setAccounts] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    setSelectedCompany(null)
+    setAccounts(null)
+    try {
+      const data = await api.search(searchQuery)
+      setSearchResults(data.items || [])
+    } catch (err) {
+      setError('Search failed.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const selectCompany = async (company) => {
+    setSelectedCompany(company)
+    setSearchResults(null)
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await api.getAccounts(company.company_number, 2)
+      setAccounts(data.accounts || [])
+    } catch (err) {
+      setError('Failed to fetch accounts.')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const formatAccountsDate = (dateStr) => {
+    if (!dateStr) return 'N/A'
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  }
+
+  const formatDescription = (description, values) => {
+    if (!description) return 'Accounts'
+    let result = description.replace(/-/g, ' ')
+    if (values) {
+      for (const [key, value] of Object.entries(values)) {
+        result = result.replace(`{${key}}`, value)
+      }
+    }
+    return result.charAt(0).toUpperCase() + result.slice(1)
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-teal-600 hover:text-teal-800 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+        Back to Modules
+      </button>
+
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-white rounded-xl shadow-lg p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Company Accounts</h2>
+          <p className="text-gray-600 text-sm mb-6">Search for a company to view their latest two sets of filed accounts.</p>
+
+          <form onSubmit={handleSearch} className="space-y-3">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by company name or number..."
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+              autoFocus
+            />
+            <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              {searchLoading ? 'Searching...' : 'Search'}
+            </button>
+          </form>
+
+          {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+
+          {/* Search Results */}
+          {searchResults && searchResults.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Select a company</h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {searchResults.slice(0, 10).map((company, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => selectCompany(company)}
+                    className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-teal-400 hover:bg-teal-50 transition-colors"
+                  >
+                    <p className="font-medium text-gray-900">{company.title}</p>
+                    <p className="text-sm text-gray-500">{company.company_number} • {company.company_status}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {searchResults && searchResults.length === 0 && (
+            <p className="mt-4 text-gray-500 text-sm">No companies found.</p>
+          )}
+        </div>
+
+        {/* Selected Company & Accounts */}
+        {selectedCompany && (
+          <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{selectedCompany.title}</h3>
+                <p className="text-sm text-gray-500">{selectedCompany.company_number}</p>
+              </div>
+              <button
+                onClick={() => { setSelectedCompany(null); setAccounts(null); setSearchQuery('') }}
+                className="text-sm text-teal-600 hover:text-teal-800"
+              >
+                Search another
+              </button>
+            </div>
+
+            {loading && (
+              <div className="flex items-center justify-center py-8">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-teal-500 border-t-transparent"></div>
+                <span className="ml-2 text-gray-600">Loading accounts...</span>
+              </div>
+            )}
+
+            {!loading && accounts && accounts.length === 0 && (
+              <div className="text-center py-8 text-gray-400">
+                <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p>No accounts filings found for this company.</p>
+              </div>
+            )}
+
+            {!loading && accounts && accounts.length > 0 && (
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium text-gray-700">Latest Filed Accounts</h4>
+                {accounts.map((account, idx) => (
+                  <div key={idx} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {account.made_up_date ? `${new Date(account.made_up_date).getFullYear()} accounts` : formatDescription(account.description, account.description_values)}
+                        </p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Filed: {formatAccountsDate(account.date)}
+                        </p>
+                        {account.made_up_date && (
+                          <p className="text-sm text-gray-500">
+                            Year ending: {formatAccountsDate(account.made_up_date)}
+                          </p>
+                        )}
+                      </div>
+                      {account.document_url && (
+                        <a
+                          href={account.document_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-teal-700 bg-teal-100 hover:bg-teal-200 rounded-lg transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          View PDF
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================
 // Cross-directorship Search Components
 // ============================================
 function CrossDirectorshipSearch({ onBack }) {
@@ -2248,6 +2462,10 @@ function App() {
 
         {selectedModule === 'former-directors' && (
           <FormerDirectors onBack={() => setSelectedModule(null)} />
+        )}
+
+        {selectedModule === 'company-accounts' && (
+          <CompanyAccounts onBack={() => setSelectedModule(null)} />
         )}
 
         {selectedModule === 'company-timeline' && (
