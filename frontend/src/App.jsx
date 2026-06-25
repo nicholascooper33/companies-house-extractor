@@ -1649,14 +1649,14 @@ function CompanyAccounts({ onBack }) {
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="font-medium text-gray-900">
-                          {formatDescription(account.description, account.description_values)}
+                          {account.made_up_date ? `${new Date(account.made_up_date).getFullYear()} accounts` : formatDescription(account.description, account.description_values)}
                         </p>
                         <p className="text-sm text-gray-600 mt-1">
                           Filed: {formatAccountsDate(account.date)}
                         </p>
                         {account.made_up_date && (
                           <p className="text-sm text-gray-500">
-                            Period ending: {formatAccountsDate(account.made_up_date)}
+                            Year ending: {formatAccountsDate(account.made_up_date)}
                           </p>
                         )}
                       </div>
