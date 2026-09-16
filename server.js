@@ -7,7 +7,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { selectLatestArticles, articlesFilename, buildZip } = require('./lib/articles');
+const { selectLatestArticles, articlesFilename } = require('./lib/articles');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -807,53 +807,6 @@ app.get('/api/company/:companyNumber/articles/pdf', async (req, res) => {
   } catch (error) {
     console.error('Articles PDF error:', error.message);
     res.status(isNotFound(error) ? 404 : 500).json({ error: error.message });
-  }
-});
-
-// Download the latest articles for several companies as one ZIP
-// e.g. /api/articles/zip?companies=00445790,09446231
-app.get('/api/articles/zip', async (req, res) => {
-  try {
-    const maxCompanies = 50;
-    const companyNumbers = [...new Set(
-      String(req.query.companies || '')
-        .split(',')
-        .map(s => s.trim().toUpperCase())
-        .filter(s => /^[A-Z0-9]{1,10}$/.test(s))
-    )];
-    if (companyNumbers.length === 0) {
-      return res.status(400).json({ error: 'companies query parameter is required (comma-separated company numbers)' });
-    }
-    if (companyNumbers.length > maxCompanies) {
-      return res.status(400).json({ error: `A maximum of ${maxCompanies} companies can be zipped at once` });
-    }
-
-    const entries = [];
-    const skipped = [];
-    // Sequential to stay well within Companies House rate limits
-    for (const companyNumber of companyNumbers) {
-      try {
-        const result = await resolveLatestArticles(companyNumber);
-        if (!result.latest?.document_url) {
-          skipped.push(`${companyNumber} ${result.company_name}: no downloadable articles found`);
-          continue;
-        }
-        entries.push({ name: result.filename, data: await fetchDocumentPdf(result.latest.document_url) });
-      } catch (error) {
-        skipped.push(`${companyNumber}: ${isNotFound(error) ? 'company not found' : error.message}`);
-      }
-    }
-    if (skipped.length > 0) {
-      entries.push({ name: 'NOT DOWNLOADED.txt', data: Buffer.from(skipped.join('\r\n') + '\r\n') });
-    }
-
-    const date = new Date().toISOString().split('T')[0];
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="articles_of_association_${date}.zip"`);
-    res.send(buildZip(entries));
-  } catch (error) {
-    console.error('Articles ZIP error:', error.message);
-    res.status(500).json({ error: error.message });
   }
 });
 
