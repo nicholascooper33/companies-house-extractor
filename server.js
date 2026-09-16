@@ -7,6 +7,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { selectLatestArticles, articlesFilename, buildZip } = require('./lib/articles');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -714,6 +715,144 @@ app.get('/api/company/:companyNumber/accounts', async (req, res) => {
     });
   } catch (error) {
     console.error('Accounts error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Company Articles API Endpoints
+// ============================================
+
+// Fetch the filing-history items that can contain articles. The `incorporation`
+// category filter returns articles documents (MA, MEM/ARTS), incorporation
+// bundles (NEWINC) and resolutions, which is far smaller than the full history.
+async function fetchArticlesFilings(companyNumber) {
+  const pageSize = 100;
+  const maxItems = 1000;
+  let items = [];
+  let startIndex = 0;
+  while (items.length < maxItems) {
+    const page = await fetchFromCompaniesHouse(
+      `/company/${companyNumber}/filing-history?category=incorporation&items_per_page=${pageSize}&start_index=${startIndex}`
+    );
+    items = items.concat(page.items || []);
+    if (!page.items || page.items.length < pageSize) break;
+    startIndex += pageSize;
+  }
+  return items;
+}
+
+async function resolveLatestArticles(companyNumber) {
+  const [profile, filings] = await Promise.all([
+    fetchFromCompaniesHouse(`/company/${companyNumber}`),
+    fetchArticlesFilings(companyNumber)
+  ]);
+  const { latest, candidates } = selectLatestArticles(filings);
+  return {
+    company_number: profile.company_number,
+    company_name: profile.company_name,
+    company_status: profile.company_status,
+    found: !!latest,
+    latest,
+    candidates,
+    filename: latest ? articlesFilename(profile.company_number, profile.company_name, latest.date) : null
+  };
+}
+
+// Download a filed document as PDF via the Companies House Document API.
+// The /content endpoint redirects to a short-lived storage URL; fetch follows
+// it and drops the Authorization header on the cross-origin hop.
+async function fetchDocumentPdf(documentUrl) {
+  const apiKey = process.env.COMPANIES_HOUSE_API_KEY;
+  if (!apiKey) {
+    throw new Error('Companies House API key not configured');
+  }
+  const response = await fetch(`${documentUrl}/content`, {
+    headers: {
+      'Authorization': 'Basic ' + Buffer.from(apiKey + ':').toString('base64'),
+      'Accept': 'application/pdf'
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Companies House Document API error: ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+function isNotFound(error) {
+  return /: 404 /.test(error.message);
+}
+
+// Latest articles of association for a company (metadata only)
+app.get('/api/company/:companyNumber/articles', async (req, res) => {
+  try {
+    res.json(await resolveLatestArticles(req.params.companyNumber));
+  } catch (error) {
+    console.error('Articles error:', error.message);
+    res.status(isNotFound(error) ? 404 : 500).json({ error: error.message });
+  }
+});
+
+// Download the latest articles of association as a PDF
+app.get('/api/company/:companyNumber/articles/pdf', async (req, res) => {
+  try {
+    const result = await resolveLatestArticles(req.params.companyNumber);
+    if (!result.latest?.document_url) {
+      return res.status(404).json({ error: 'No downloadable articles of association found for this company' });
+    }
+    const pdf = await fetchDocumentPdf(result.latest.document_url);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(pdf);
+  } catch (error) {
+    console.error('Articles PDF error:', error.message);
+    res.status(isNotFound(error) ? 404 : 500).json({ error: error.message });
+  }
+});
+
+// Download the latest articles for several companies as one ZIP
+// e.g. /api/articles/zip?companies=00445790,09446231
+app.get('/api/articles/zip', async (req, res) => {
+  try {
+    const maxCompanies = 50;
+    const companyNumbers = [...new Set(
+      String(req.query.companies || '')
+        .split(',')
+        .map(s => s.trim().toUpperCase())
+        .filter(s => /^[A-Z0-9]{1,10}$/.test(s))
+    )];
+    if (companyNumbers.length === 0) {
+      return res.status(400).json({ error: 'companies query parameter is required (comma-separated company numbers)' });
+    }
+    if (companyNumbers.length > maxCompanies) {
+      return res.status(400).json({ error: `A maximum of ${maxCompanies} companies can be zipped at once` });
+    }
+
+    const entries = [];
+    const skipped = [];
+    // Sequential to stay well within Companies House rate limits
+    for (const companyNumber of companyNumbers) {
+      try {
+        const result = await resolveLatestArticles(companyNumber);
+        if (!result.latest?.document_url) {
+          skipped.push(`${companyNumber} ${result.company_name}: no downloadable articles found`);
+          continue;
+        }
+        entries.push({ name: result.filename, data: await fetchDocumentPdf(result.latest.document_url) });
+      } catch (error) {
+        skipped.push(`${companyNumber}: ${isNotFound(error) ? 'company not found' : error.message}`);
+      }
+    }
+    if (skipped.length > 0) {
+      entries.push({ name: 'NOT DOWNLOADED.txt', data: Buffer.from(skipped.join('\r\n') + '\r\n') });
+    }
+
+    const date = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="articles_of_association_${date}.zip"`);
+    res.send(buildZip(entries));
+  } catch (error) {
+    console.error('Articles ZIP error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

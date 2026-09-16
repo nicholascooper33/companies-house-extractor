@@ -10,6 +10,7 @@
     "dev": "npm run dev:backend & npm run dev:frontend",
     "build": "cd frontend && npm install && npm run build",
     "start": "node server.js",
+    "test": "node --test lib/articles.test.js",
     "production": "npm run build && npm start"
   },
   "dependencies": {

@@ -60,6 +60,12 @@ const api = {
     const res = await fetch(`/api/company/${companyNumber}/accounts?limit=${limit}`)
     if (!res.ok) throw new Error('Failed to fetch accounts')
     return res.json()
+  },
+  // Articles API
+  getArticles: async (companyNumber) => {
+    const res = await fetch(`/api/company/${companyNumber}/articles`)
+    if (!res.ok) throw new Error('Failed to fetch articles')
+    return res.json()
   }
 }
 
@@ -513,9 +519,19 @@ function ModuleSelector({ onSelectModule }) {
         </svg>
       ),
       color: 'teal'
+    },
+    {
+      id: 'company-articles',
+      name: 'Company Articles',
+      description: 'Add one or more companies and download the most recently filed articles of association for each, individually or as a single ZIP.',
+      icon: (
+        <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      color: 'amber'
     }
     // Company Timeline module hidden for now - code retained
-    // Company Articles module removed for now - needs refinement
   ]
 
   const colorClasses = {
@@ -543,6 +559,11 @@ function ModuleSelector({ onSelectModule }) {
       bg: 'bg-teal-100/80 hover:bg-teal-100',
       icon: 'text-teal-600',
       title: 'text-teal-900'
+    },
+    amber: {
+      bg: 'bg-amber-100/80 hover:bg-amber-100',
+      icon: 'text-amber-600',
+      title: 'text-amber-900'
     }
   }
 
@@ -1686,6 +1707,268 @@ function CompanyAccounts({ onBack }) {
 }
 
 // ============================================
+// Company Articles Module
+// ============================================
+function CompanyArticles({ onBack }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [companies, setCompanies] = useState([]) // List of added companies
+  const [articlesData, setArticlesData] = useState({}) // company_number -> { loading, result, error }
+  const [error, setError] = useState(null)
+
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError(null)
+    setSearchResults(null)
+    try {
+      const data = await api.search(searchQuery)
+      setSearchResults(data.items || [])
+    } catch (err) {
+      setError('Search failed.')
+      console.error(err)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const addCompany = async (company) => {
+    if (companies.some(c => c.company_number === company.company_number)) {
+      return // Silently ignore - visual feedback shows it's added
+    }
+
+    setCompanies(prev => [...prev, company])
+    setArticlesData(prev => ({ ...prev, [company.company_number]: { loading: true } }))
+    try {
+      const result = await api.getArticles(company.company_number)
+      setArticlesData(prev => ({ ...prev, [company.company_number]: { result } }))
+    } catch (err) {
+      console.error('Failed to fetch articles for', company.company_number, err)
+      setArticlesData(prev => ({ ...prev, [company.company_number]: { error: 'Failed to load filing history.' } }))
+    }
+  }
+
+  const removeCompany = (companyNumber) => {
+    setCompanies(prev => prev.filter(c => c.company_number !== companyNumber))
+    setArticlesData(prev => {
+      const newData = { ...prev }
+      delete newData[companyNumber]
+      return newData
+    })
+  }
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'Unknown date'
+    return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  }
+
+  const downloadableCompanies = companies.filter(c => articlesData[c.company_number]?.result?.latest?.document_url)
+  const anyLoading = companies.some(c => articlesData[c.company_number]?.loading)
+  const zipUrl = `/api/articles/zip?companies=${downloadableCompanies.map(c => c.company_number).join(',')}`
+
+  const kindBadge = {
+    articles: 'bg-amber-100 text-amber-800',
+    resolution: 'bg-yellow-100 text-yellow-800',
+    incorporation: 'bg-gray-100 text-gray-700'
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-amber-600 hover:text-amber-800 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+        Back to Modules
+      </button>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Search and Add */}
+        <div>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Add Companies</h2>
+            <form onSubmit={handleSearch} className="space-y-3">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by company name or number..."
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                autoFocus
+              />
+              <button type="submit" disabled={searchLoading || !searchQuery.trim()} className="w-full px-4 py-2 bg-amber-600 text-white font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                {searchLoading ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+
+            {error && <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+
+            {/* Search Results */}
+            {searchResults && searchResults.length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-500">{searchResults.length} results</span>
+                  <button onClick={() => setSearchResults(null)} className="text-xs text-gray-400 hover:text-gray-600">Clear search</button>
+                </div>
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {searchResults.slice(0, 15).map((company, idx) => {
+                    const isAdded = companies.some(c => c.company_number === company.company_number)
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => addCompany(company)}
+                        disabled={isAdded}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors flex items-center justify-between ${
+                          isAdded
+                            ? 'border-green-300 bg-green-50 cursor-default'
+                            : 'border-gray-200 hover:border-amber-400 hover:bg-amber-50'
+                        }`}
+                      >
+                        <div>
+                          <p className={`font-medium ${isAdded ? 'text-green-800' : 'text-gray-900'}`}>{company.title}</p>
+                          <p className="text-sm text-gray-500">{company.company_number} • {company.company_status}</p>
+                        </div>
+                        {isAdded && (
+                          <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {searchResults && searchResults.length === 0 && (
+              <p className="mt-4 text-gray-500 text-sm">No companies found.</p>
+            )}
+          </div>
+
+          {/* Added Companies List */}
+          {companies.length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Companies Added ({companies.length})</h3>
+                <button onClick={() => { setCompanies([]); setArticlesData({}) }} className="text-sm text-red-600 hover:text-red-800">Clear all</button>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {companies.map((company) => (
+                  <div key={company.company_number} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900 text-sm">{company.title || company.company_name}</p>
+                      <p className="text-xs text-gray-500">{company.company_number}</p>
+                    </div>
+                    <button onClick={() => removeCompany(company.company_number)} className="text-gray-400 hover:text-red-600 p-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Latest Articles per company */}
+        <div>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Latest Articles of Association</h2>
+                <p className="text-sm text-gray-500">{downloadableCompanies.length} of {companies.length} compan{companies.length === 1 ? 'y' : 'ies'} with a downloadable document</p>
+              </div>
+              {downloadableCompanies.length > 0 && !anyLoading ? (
+                <a
+                  href={zipUrl}
+                  className="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  Download all (ZIP)
+                </a>
+              ) : (
+                <button disabled className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg opacity-50 cursor-not-allowed flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  Download all (ZIP)
+                </button>
+              )}
+            </div>
+
+            {companies.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                <p>Add companies to find their most recently filed articles</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                {companies.map((company) => {
+                  const entry = articlesData[company.company_number] || {}
+                  const latest = entry.result?.latest
+                  const earlier = (entry.result?.candidates || []).filter(c => c !== latest && c.transaction_id !== latest?.transaction_id).slice(0, 5)
+                  return (
+                    <div key={company.company_number} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{company.title || company.company_name}</h4>
+                          <p className="text-xs text-gray-500">{company.company_number}</p>
+                        </div>
+                        {latest?.document_url && (
+                          <a
+                            href={`/api/company/${company.company_number}/articles/pdf`}
+                            className="flex-shrink-0 px-3 py-1.5 text-sm bg-amber-600 text-white font-medium rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-1.5"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Download PDF
+                          </a>
+                        )}
+                      </div>
+
+                      {entry.loading && (
+                        <div className="flex items-center mt-3 text-sm text-gray-600">
+                          <div className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent mr-2"></div>
+                          Checking filing history...
+                        </div>
+                      )}
+
+                      {entry.error && <p className="mt-3 text-sm text-red-600">{entry.error}</p>}
+
+                      {entry.result && !latest && (
+                        <p className="mt-3 text-sm text-gray-400 italic">No articles of association found in filing history.</p>
+                      )}
+
+                      {latest && (
+                        <div className="mt-3 text-sm bg-amber-50 rounded p-3 border border-amber-100">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${kindBadge[latest.kind] || kindBadge.incorporation}`}>{latest.label}</span>
+                            <span className="text-xs text-gray-500">Type {latest.type}{latest.pages ? ` • ${latest.pages} pages` : ''}</span>
+                          </div>
+                          <p className="text-gray-800">Filed {formatDate(latest.date)}</p>
+                          {latest.note && <p className="text-xs text-gray-600 mt-1">{latest.note}</p>}
+                          {!latest.document_url && <p className="text-xs text-red-600 mt-1">No document is available from Companies House for this filing.</p>}
+                          {earlier.length > 0 && (
+                            <details className="mt-2">
+                              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">Earlier articles filings ({earlier.length})</summary>
+                              <ul className="mt-1 text-xs text-gray-600 space-y-0.5">
+                                {earlier.map((c, idx) => (
+                                  <li key={idx}>{formatDate(c.date)} • {c.label} ({c.type})</li>
+                                ))}
+                              </ul>
+                              <a href={`https://find-and-update.company-information.service.gov.uk/company/${company.company_number}/filing-history`} target="_blank" rel="noopener noreferrer" className="text-xs text-amber-600 hover:underline">View full filing history on Companies House</a>
+                            </details>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
 // Cross-directorship Search Components
 // ============================================
 function CrossDirectorshipSearch({ onBack }) {
@@ -2470,6 +2753,10 @@ function App() {
 
         {selectedModule === 'company-timeline' && (
           <CompanyTimeline onBack={() => setSelectedModule(null)} />
+        )}
+
+        {selectedModule === 'company-articles' && (
+          <CompanyArticles onBack={() => setSelectedModule(null)} />
         )}
 
         {selectedModule === 'terms' && (

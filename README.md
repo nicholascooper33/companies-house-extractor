@@ -9,6 +9,7 @@ A web application for extracting company information from the UK Companies House
 - **Officers**: View active directors and company secretaries
 - **Persons with Significant Control (PSC)**: View individuals and corporate entities with significant control
 - **Ownership Chain Visualization**: Automatically trace corporate ownership chains to identify ultimate beneficial owners for UK-registered parent companies
+- **Company Articles**: Add multiple companies and download the most recently filed articles of association for each, one PDF at a time or all together as a ZIP
 
 ---
 
